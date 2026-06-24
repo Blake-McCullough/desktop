@@ -27,6 +27,8 @@ import { enableWorktreeSupport } from '../../lib/feature-flag'
 import { SectionFilterList } from '../lib/section-filter-list'
 import { assertNever } from '../../lib/fatal-error'
 import { IAheadBehind } from '../../models/branch'
+import { RepoGroupsStore } from '../../lib/repo-groups-store'
+import { RepoGroup } from '../../models/repo-group'
 
 const BlankSlateImage = encodePathAsUrl(__dirname, 'static/empty-no-repo.svg')
 
@@ -144,12 +146,30 @@ export class RepositoriesList extends React.Component<
    */
   private getSelectedListItem = memoizeOne(findMatchingListItem)
 
+  private groupUnsubscribe: (() => void) | null = null
+  private groups: RepoGroup[] = []
+
   public constructor(props: IRepositoriesListProps) {
     super(props)
 
     this.state = {
       newRepositoryMenuExpanded: false,
       selectedItem: null,
+    }
+  }
+
+  public componentDidMount() {
+    this.groups = RepoGroupsStore.getGroups()
+    this.groupUnsubscribe = RepoGroupsStore.subscribe(() => {
+      this.groups = RepoGroupsStore.getGroups()
+      this.forceUpdate()
+    })
+  }
+
+  public componentWillUnmount() {
+    if (this.groupUnsubscribe) {
+      this.groupUnsubscribe()
+      this.groupUnsubscribe = null
     }
   }
 
@@ -256,6 +276,29 @@ export class RepositoriesList extends React.Component<
   }
 
   private renderGroupHeader = (group: RepositoryListGroup) => {
+    // If it's a custom group we've injected, render a collapsible header
+    if ((group as any).customGroupId) {
+      const customId = (group as any).customGroupId as string
+      const rg = this.groups.find(g => g.id === customId)
+      const label = rg ? rg.name : (group as any).customGroupLabel
+      const collapsed = rg ? rg.collapsed : false
+
+      return (
+        <div
+          key={getGroupKey(group)}
+          className="filter-list-group-header custom-group-header"
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            if (rg) RepoGroupsStore.toggleGroupCollapsed(rg.id)
+          }}
+        >
+          <span className="group-collapse-indicator">{collapsed ? '▶' : '▼'}</span>
+          <span className="group-label">{label}</span>
+        </div>
+      )
+    }
+
     const label = this.getGroupLabel(group)
 
     return (
@@ -287,7 +330,7 @@ export class RepositoriesList extends React.Component<
   ) => {
     event.preventDefault()
 
-    const items = generateRepositoryListContextMenu({
+    const baseItems = generateRepositoryListContextMenu({
       onRemoveRepository: this.props.onRemoveRepository,
       onShowRepository: this.props.onShowRepository,
       onOpenInShell: this.props.onOpenInShell,
@@ -308,6 +351,44 @@ export class RepositoriesList extends React.Component<
       shellLabel: this.props.shellLabel,
     })
 
+    const groups = this.groups
+    const assignmentMap = RepoGroupsStore.getAssignmentMap()
+    const currentGroupId = assignmentMap[String(item.repository.id)] ?? null
+
+    const moveToGroupSubmenu: IMenuItem[] = [
+      {
+        label: 'No group',
+        action: () => RepoGroupsStore.setRepositoryGroup(item.repository.id, null),
+        type: 'radio' as any,
+        checked: currentGroupId === null,
+      },
+      ...groups.map(g => ({
+        label: g.name,
+        action: () => RepoGroupsStore.setRepositoryGroup(item.repository.id, g.id),
+        type: 'radio' as any,
+        checked: currentGroupId === g.id,
+      })),
+      {
+        label: 'Create new group…',
+        action: async () => {
+          const name = window.prompt('New group name')
+          if (name && name.trim().length) {
+            const created = RepoGroupsStore.createGroup(name.trim())
+            RepoGroupsStore.setRepositoryGroup(item.repository.id, created.id)
+          }
+        },
+      },
+    ]
+
+    const items: IMenuItem[] = [
+      ...baseItems,
+      { type: 'separator' } as any,
+      {
+        label: 'Move to group',
+        submenu: moveToGroupSubmenu as any,
+      } as any,
+    ]
+
     showContextualMenu(items)
   }
 
@@ -322,11 +403,53 @@ export class RepositoriesList extends React.Component<
       this.getGroupLabel(groups[group].identifier)
 
   public render() {
-    const groups = this.getRepositoryGroups(
+    const baseGroups = this.getRepositoryGroups(
       this.props.repositories,
       this.props.localRepositoryStateLookup,
       this.props.recentRepositories
     )
+
+    // Build custom groups from assignments and remove assigned repos from baseGroups
+    const assignments = RepoGroupsStore.getAssignmentMap()
+    const customGroupsForList: IFilterListGroup<IRepositoryListItem, RepositoryListGroup>[] = []
+
+    const unassignedRepos = new Set<number>()
+    for (const r of this.props.repositories) unassignedRepos.add(r.id)
+
+    for (const rg of this.groups) {
+      const items: IRepositoryListItem[] = []
+      for (const repo of this.props.repositories) {
+        if (assignments[String(repo.id)] === rg.id) {
+          items.push({
+            repository: repo,
+            needsDisambiguation: false,
+            aheadBehind: null,
+            changedFilesCount: 0,
+          } as unknown as IRepositoryListItem)
+          unassignedRepos.delete(repo.id)
+        }
+      }
+
+      // Respect collapsed state
+      const collapsed = rg.collapsed
+      const renderedItems = collapsed ? [] : items
+
+      if (items.length > 0) {
+        customGroupsForList.push({
+          identifier: { kind: 'custom', id: rg.id, name: rg.name } as any,
+          items: renderedItems,
+        } as unknown as IFilterListGroup<IRepositoryListItem, RepositoryListGroup>)
+      }
+    }
+
+    // Now filter baseGroups to remove repos moved into custom groups
+    const filteredBaseGroups = baseGroups.map(g => ({
+      ...g,
+      items: g.items.filter(i => unassignedRepos.has(i.repository.id)),
+    }))
+
+    // Combine custom groups first, then the filtered base groups
+    const groups = [...customGroupsForList, ...filteredBaseGroups]
 
     // So there's two types of selection at play here. There's the repository
     // selection for the whole app and then there's the keyboard selection in
@@ -370,15 +493,27 @@ export class RepositoriesList extends React.Component<
 
   private renderPostFilter = () => {
     return (
-      <Button
-        className="new-repository-button"
-        onClick={this.onNewRepositoryButtonClick}
-        ariaExpanded={this.state.newRepositoryMenuExpanded}
-        onKeyDown={this.onNewRepositoryButtonKeyDown}
-      >
-        Add
-        <Octicon symbol={octicons.triangleDown} />
-      </Button>
+      <div className="repository-list-post-filter">
+        <Button
+          className="new-repository-button"
+          onClick={this.onNewRepositoryButtonClick}
+          ariaExpanded={this.state.newRepositoryMenuExpanded}
+          onKeyDown={this.onNewRepositoryButtonKeyDown}
+        >
+          Add
+          <Octicon symbol={octicons.triangleDown} />
+        </Button>
+        <Button
+          className="manage-groups-button"
+          onClick={() => {
+            const name = window.prompt('New group name')
+            if (name && name.trim().length) RepoGroupsStore.createGroup(name.trim())
+          }}
+          title="Create or manage groups"
+        >
+          Groups
+        </Button>
+      </div>
     )
   }
 
