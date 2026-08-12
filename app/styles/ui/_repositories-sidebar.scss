@@ -1,0 +1,127 @@
+@import '../mixins';
+
+.repositories-sidebar {
+  height: 100%;
+  flex-shrink: 0;
+  border-right: var(--base-border);
+  background: var(--background-color);
+
+  &.collapsed {
+    width: 28px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: var(--spacing);
+  }
+
+  .expand-sidebar-button,
+  .collapse-sidebar-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-half);
+
+    &:hover {
+      color: var(--text-color);
+    }
+  }
+
+  .repositories-sidebar-inner {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .repositories-sidebar-header {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing);
+    flex-shrink: 0;
+
+    .title {
+      font-weight: var(--font-weight-semibold);
+      flex: 1 1 auto;
+      @include ellipsis;
+    }
+
+    .add-repository-button {
+      margin-right: var(--spacing-half);
+    }
+  }
+
+  .repositories-sidebar-groups {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .repositories-sidebar-group {
+    &.drag-over {
+      background: var(--box-selected-background-color);
+    }
+  }
+
+  .repositories-sidebar-group-header {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-half) var(--spacing);
+    cursor: pointer;
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-secondary-color);
+    user-select: none;
+
+    .collapse-icon {
+      margin-right: var(--spacing-half);
+      flex-shrink: 0;
+      width: 12px;
+    }
+
+    .name {
+      flex: 1 1 auto;
+      @include ellipsis;
+    }
+
+    .count {
+      color: var(--text-secondary-color);
+      font-size: var(--font-size-xs);
+      margin-left: var(--spacing-half);
+    }
+
+    &:hover {
+      background: var(--box-alt-background-color);
+    }
+  }
+
+  .repositories-sidebar-group-items {
+    .no-repositories {
+      padding: var(--spacing-half) var(--spacing) var(--spacing-half)
+        calc(var(--spacing) + 20px);
+      color: var(--text-secondary-color);
+      font-size: var(--font-size-xs);
+    }
+  }
+
+  .repositories-sidebar-item {
+    padding: var(--spacing-half) var(--spacing) var(--spacing-half)
+      calc(var(--spacing) + 20px);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--box-alt-background-color);
+    }
+
+    &.selected {
+      background: var(--box-selected-background-color);
+      color: var(--box-selected-text-color);
+    }
+
+    .repository-list-item {
+      padding: 0;
+    }
+  }
+}

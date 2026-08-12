@@ -118,6 +118,7 @@ export enum PopupType {
   ConfirmDeleteCopilotBYOKProvider = 'ConfirmDeleteCopilotBYOKProvider',
   CopilotConflictResolutionAlwaysNudge = 'CopilotConflictResolutionAlwaysNudge',
   DeleteWorktreeFailed = 'DeleteWorktreeFailed',
+  RepositoryGroupNamePrompt = 'RepositoryGroupNamePrompt',
 }
 
 interface IBasePopup {
@@ -534,5 +535,16 @@ export type PopupDetail =
       worktreePath: string
       error: Error
       originalWorktree: WorktreeEntry | null
+    }
+  | {
+      type: PopupType.RepositoryGroupNamePrompt
+      /** The dialog title, e.g. "New Group" or "Rename Group" */
+      title: string
+      /** The label of the submit button, e.g. "Create" or "Rename" */
+      okButtonText: string
+      /** The initial value of the text field, e.g. the current group name when renaming */
+      defaultValue?: string
+      /** Called with the entered (trimmed, non-empty) name when the user submits */
+      onSubmit: (name: string) => void
     }
 export type Popup = IBasePopup & PopupDetail

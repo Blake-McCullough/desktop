@@ -43,7 +43,7 @@ import { CloningRepository } from '../models/cloning-repository'
 
 import { TitleBar, ZoomInfo, FullScreenInfo } from './window'
 
-import { RepositoriesList } from './repositories-list'
+import { RepositoriesList, RepositoriesSidebar } from './repositories-list'
 import { RepositoryView } from './repository'
 import { RenameBranch } from './rename-branch'
 import { DeleteBranch, DeleteRemoteBranch } from './delete-branch'
@@ -142,6 +142,7 @@ import { CommitDragElement } from './drag-elements/commit-drag-element'
 import classNames from 'classnames'
 import { MoveToApplicationsFolder } from './move-to-applications-folder'
 import { ChangeRepositoryAlias } from './change-repository-alias/change-repository-alias-dialog'
+import { RepositoryGroupNameDialog } from './repositories-list/repository-group-name-dialog'
 import { ThankYou } from './thank-you'
 import {
   getUserContributions,
@@ -2431,6 +2432,18 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       }
+      case PopupType.RepositoryGroupNamePrompt: {
+        return (
+          <RepositoryGroupNameDialog
+            key="repository-group-name"
+            title={popup.title}
+            okButtonText={popup.okButtonText}
+            defaultValue={popup.defaultValue}
+            onSubmit={popup.onSubmit}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
       case PopupType.PullRequestChecksFailed: {
         return (
           <PullRequestChecksFailed
@@ -3188,11 +3201,44 @@ export class App extends React.Component<IAppProps, IAppState> {
         className={this.getDesktopAppContentsClassNames()}
       >
         {this.renderToolbar()}
-        {this.renderBanner()}
-        {this.renderRepository()}
+        <div className="app-contents-row">
+          {this.renderRepositoriesSidebar()}
+          <div className="app-main-column">
+            {this.renderBanner()}
+            {this.renderRepository()}
+          </div>
+        </div>
         {this.renderPopups()}
         {this.renderDragElement()}
       </div>
+    )
+  }
+
+  private renderRepositoriesSidebar = (): JSX.Element => {
+    const selectedRepository = this.state.selectedState
+      ? this.state.selectedState.repository
+      : null
+
+    const { useCustomShell, selectedShell } = this.state
+
+    return (
+      <RepositoriesSidebar
+        selectedRepository={selectedRepository}
+        onSelectionChanged={this.onSelectionChanged}
+        repositories={this.state.repositories}
+        localRepositoryStateLookup={this.state.localRepositoryStateLookup}
+        askForConfirmationOnRemoveRepository={
+          this.state.askForConfirmationOnRepositoryRemoval
+        }
+        onRemoveRepository={this.removeRepository}
+        onViewOnGitHub={this.viewOnGitHub}
+        onOpenInShell={this.openInShell}
+        onShowRepository={this.showRepository}
+        onOpenInExternalEditor={this.openInExternalEditor}
+        externalEditorLabel={this.externalEditorLabel}
+        shellLabel={useCustomShell ? undefined : selectedShell}
+        dispatcher={this.props.dispatcher}
+      />
     )
   }
 

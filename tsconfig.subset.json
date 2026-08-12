@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "app/src/ui/repositories-list/custom-repository-groups-store.ts",
+    "app/src/ui/repositories-list/repositories-sidebar.tsx",
+    "app/src/ui/repositories-list/repository-list-item-context-menu.ts",
+    "app/src/ui/app.tsx"
+  ]
+}
