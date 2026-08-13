@@ -374,7 +374,7 @@ export class RepositoriesSidebar extends React.Component<
     return (
       <div
         key={repository.id}
-        className={classNames('repositories-sidebar-item', {
+        className={classNames('repositories-sidebar-item', 'repository-list', {
           selected,
         })}
         draggable={true}
