@@ -42,6 +42,7 @@ export function isLikelyGitLabHost(hostname: string): boolean {
 
 /** A single CI/CD job status for a commit, as reported by GitLab. */
 export interface IGitLabJobStatus {
+  readonly id: number
   readonly name: string
   readonly status: string
 }
@@ -82,12 +83,50 @@ export async function fetchLatestCommitStatuses(
     }
 
     return body.map(status => ({
+      id: status.id,
       name: `${status.name ?? status.ref ?? 'job'}`,
       status: `${status.status ?? 'unknown'}`,
     }))
   } catch (e) {
     log.error(`fetchLatestCommitStatuses: failed to fetch ${url}`, e)
     return null
+  }
+}
+
+/**
+ * Trigger ("play") a manual GitLab CI/CD job so that it starts running.
+ *
+ * This is best-effort background data used purely for a UI action, so it
+ * never throws: any network or HTTP error is caught, logged, and results in
+ * `false` being returned.
+ */
+export async function playGitLabJob(
+  hostname: string,
+  projectPath: string,
+  jobId: number,
+  token: string
+): Promise<boolean> {
+  const url = `https://${hostname}/api/v4/projects/${encodeURIComponent(
+    projectPath
+  )}/jobs/${jobId}/play`
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'PRIVATE-TOKEN': token },
+    })
+
+    if (!response.ok) {
+      log.error(
+        `playGitLabJob: request to ${url} failed with status ${response.status}`
+      )
+      return false
+    }
+
+    return response.ok
+  } catch (e) {
+    log.error(`playGitLabJob: failed to fetch ${url}`, e)
+    return false
   }
 }
 
