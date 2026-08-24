@@ -35,16 +35,13 @@ import { PopupType } from '../../models/popup'
 import { Button } from '../lib/button'
 import { IMatches } from '../../lib/fuzzy-find'
 import { TooltippedContent } from '../lib/tooltipped-content'
-import { getRemotes } from '../../lib/git/remote'
-import { git } from '../../lib/git/core'
 import { getGitLabToken } from '../../lib/gitlab/gitlab-token'
+import { getJobStatusColor } from '../../lib/gitlab/gitlab-api'
 import {
-  IGitLabJobStatus,
-  fetchLatestCommitStatuses,
-  getJobStatusColor,
-  isLikelyGitLabHost,
-  parseGitLabProject,
-} from '../../lib/gitlab/gitlab-api'
+  IGitLabPipelineStatusMap,
+  gitLabPipelineStatusStore,
+} from '../../lib/stores/gitlab-pipeline-status-store'
+import { Disposable } from 'event-kit'
 
 const NoMatches: IMatches = { title: [], subtitle: [] }
 
@@ -86,11 +83,8 @@ interface IRepositoriesSidebarState {
   readonly draggedRepositoryId: number | null
   readonly dragOverGroupId: string | null
 
-  /** The user's global GitLab personal access token, or null if none is configured. */
-  readonly gitlabToken: string | null
-
   /** Latest known GitLab pipeline job statuses, keyed by repository id. */
-  readonly pipelineStatuses: ReadonlyMap<number, ReadonlyArray<IGitLabJobStatus>>
+  readonly pipelineStatuses: IGitLabPipelineStatusMap
 }
 
 /**
@@ -115,15 +109,21 @@ export class RepositoriesSidebar extends React.Component<
       collapsedGroupIds: getCollapsedGroupIds(),
       draggedRepositoryId: null,
       dragOverGroupId: null,
-      gitlabToken: null,
-      pipelineStatuses: new Map(),
+      pipelineStatuses: gitLabPipelineStatusStore.getStatuses(),
     }
   }
 
   private pipelineStatusesInterval: number | null = null
+  private pipelineStatusStoreSubscription: Disposable | null = null
 
   public componentDidMount() {
-    this.loadGitLabTokenAndStartPolling()
+    this.pipelineStatusStoreSubscription = gitLabPipelineStatusStore.onDidUpdate(
+      pipelineStatuses => {
+        this.setState({ pipelineStatuses })
+      }
+    )
+
+    this.startPollingIfTokenConfigured()
   }
 
   public componentWillUnmount() {
@@ -131,11 +131,15 @@ export class RepositoriesSidebar extends React.Component<
       window.clearInterval(this.pipelineStatusesInterval)
       this.pipelineStatusesInterval = null
     }
+
+    if (this.pipelineStatusStoreSubscription !== null) {
+      this.pipelineStatusStoreSubscription.dispose()
+      this.pipelineStatusStoreSubscription = null
+    }
   }
 
-  private async loadGitLabTokenAndStartPolling() {
+  private async startPollingIfTokenConfigured() {
     const gitlabToken = await getGitLabToken()
-    this.setState({ gitlabToken })
 
     // If there's no token configured, this feature is fully inert: no
     // network requests, no git commands, nothing scheduled.
@@ -152,83 +156,12 @@ export class RepositoriesSidebar extends React.Component<
     )
   }
 
-  private refreshPipelineStatuses = async () => {
-    const { gitlabToken } = this.state
-    if (gitlabToken === null) {
-      return
-    }
-
-    const results = await Promise.all(
-      this.props.repositories.map(repository =>
-        this.getPipelineStatusForRepository(repository, gitlabToken)
-      )
+  private refreshPipelineStatuses = () => {
+    const repositories = this.props.repositories.filter(
+      (repository): repository is Repository => repository instanceof Repository
     )
 
-    const pipelineStatuses = new Map<number, ReadonlyArray<IGitLabJobStatus>>()
-    for (const result of results) {
-      if (result !== null) {
-        pipelineStatuses.set(result.repositoryId, result.statuses)
-      }
-    }
-
-    this.setState({ pipelineStatuses })
-  }
-
-  private async getPipelineStatusForRepository(
-    repository: Repositoryish,
-    gitlabToken: string
-  ): Promise<{
-    repositoryId: number
-    statuses: ReadonlyArray<IGitLabJobStatus>
-  } | null> {
-    if (!(repository instanceof Repository)) {
-      return null
-    }
-
-    try {
-      const remotes = await getRemotes(repository)
-      const origin = remotes.find(r => r.name === 'origin')
-      if (origin === undefined) {
-        return null
-      }
-
-      const project = parseGitLabProject(origin.url)
-      if (project === null || !isLikelyGitLabHost(project.hostname)) {
-        return null
-      }
-
-      const result = await git(
-        ['rev-parse', 'HEAD'],
-        repository.path,
-        'gitlabPipelineHeadSha'
-      )
-      const sha = result.stdout.trim()
-      if (sha.length === 0) {
-        return null
-      }
-
-      const statuses = await fetchLatestCommitStatuses(
-        project.hostname,
-        project.projectPath,
-        sha,
-        gitlabToken
-      )
-
-      if (statuses === null) {
-        return null
-      }
-
-      return { repositoryId: repository.id, statuses }
-    } catch (e) {
-      // Any failure for a single repository (missing on disk, detached
-      // HEAD weirdness, network issues, etc.) should never crash the
-      // sidebar or prevent other repositories from being refreshed.
-      log.error(
-        `Failed to refresh GitLab pipeline status for '${repository.name}'`,
-        e
-      )
-      return null
-    }
+    gitLabPipelineStatusStore.refresh(repositories)
   }
 
   private getSections = memoizeOne(

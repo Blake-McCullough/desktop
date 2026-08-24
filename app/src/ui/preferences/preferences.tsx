@@ -123,6 +123,7 @@ interface IPreferencesProps {
   readonly copilotModels: ReadonlyArray<Model> | null
   readonly byokProviders: ReadonlyArray<IBYOKProvider>
   readonly alwaysUseCopilotForConflictResolution: boolean
+  readonly repositories: ReadonlyArray<Repository>
 }
 
 interface IPreferencesState {
@@ -758,6 +759,7 @@ export class Preferences extends React.Component<
           <GitLab
             token={this.state.gitlabToken}
             onTokenChanged={this.onGitLabTokenChanged}
+            repositories={this.props.repositories}
           />
         )
         break

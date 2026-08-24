@@ -109,7 +109,13 @@ export class RepositoryListItem extends React.Component<
     ) {
       return (
         nextProps.repository.id !== this.props.repository.id ||
-        nextProps.matches !== this.props.matches
+        nextProps.matches !== this.props.matches ||
+        nextProps.needsDisambiguation !== this.props.needsDisambiguation ||
+        nextProps.changedFilesCount !== this.props.changedFilesCount ||
+        (nextProps.aheadBehind?.ahead ?? null) !==
+          (this.props.aheadBehind?.ahead ?? null) ||
+        (nextProps.aheadBehind?.behind ?? null) !==
+          (this.props.aheadBehind?.behind ?? null)
       )
     } else {
       return true

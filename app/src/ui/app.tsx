@@ -1700,6 +1700,9 @@ export class App extends React.Component<IAppProps, IAppState> {
             alwaysUseCopilotForConflictResolution={
               this.state.alwaysUseCopilotForConflictResolution
             }
+            repositories={this.state.repositories.filter(
+              (r): r is Repository => r instanceof Repository
+            )}
           />
         )
       case PopupType.RepositorySettings: {
