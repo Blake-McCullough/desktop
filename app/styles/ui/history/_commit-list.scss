@@ -181,6 +181,39 @@
       background: var(--list-item-badge-background-color);
       margin-left: var(--spacing-half);
     }
+
+    // Small aggregated dot showing the "worst" GitLab CI/CD pipeline job
+    // status for this commit. Reuses the same .gitlab-job-dot-* color
+    // classes as the repositories sidebar's per-job dots.
+    .gitlab-pipeline-indicator {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      margin-left: var(--spacing-half);
+
+      .gitlab-job-dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+
+        &.gitlab-job-dot-green {
+          background-color: var(--status-success-color);
+        }
+
+        &.gitlab-job-dot-red {
+          background-color: var(--status-error-color);
+        }
+
+        &.gitlab-job-dot-yellow {
+          background-color: var(--status-pending-color);
+        }
+
+        &.gitlab-job-dot-grey {
+          background-color: var(--text-secondary-color);
+        }
+      }
+    }
   }
 
   .tool-tip-contents {

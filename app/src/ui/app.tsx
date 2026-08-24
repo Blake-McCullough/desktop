@@ -3227,6 +3227,7 @@ export class App extends React.Component<IAppProps, IAppState> {
     return (
       <RepositoriesSidebar
         selectedRepository={selectedRepository}
+        selectedRepositoryTipSha={this.getSelectedRepositoryTipSha()}
         onSelectionChanged={this.onSelectionChanged}
         repositories={this.state.repositories}
         localRepositoryStateLookup={this.state.localRepositoryStateLookup}
@@ -3243,6 +3244,34 @@ export class App extends React.Component<IAppProps, IAppState> {
         dispatcher={this.props.dispatcher}
       />
     )
+  }
+
+  /**
+   * The tip commit sha of the currently selected repository's current
+   * branch (or detached HEAD), or `null` if there isn't a well-defined one
+   * (no repository selected, unborn branch, unknown state, etc.). Used to
+   * detect branch switches/new commits so GitLab pipeline statuses can be
+   * refetched immediately rather than waiting for the periodic poll.
+   */
+  private getSelectedRepositoryTipSha(): string | null {
+    const { selectedState } = this.state
+    if (selectedState === null || selectedState.type !== SelectionType.Repository) {
+      return null
+    }
+
+    const { tip } = selectedState.state.branchesState
+
+    switch (tip.kind) {
+      case TipState.Valid:
+        return tip.branch.tip.sha
+      case TipState.Detached:
+        return tip.currentSha
+      case TipState.Unborn:
+      case TipState.Unknown:
+        return null
+      default:
+        return null
+    }
   }
 
   private renderRepositoryList = (): JSX.Element => {

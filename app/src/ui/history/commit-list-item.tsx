@@ -5,7 +5,9 @@
  */
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 import * as React from 'react'
+import { Disposable } from 'event-kit'
 import { Commit } from '../../models/commit'
+import { Repository } from '../../models/repository'
 import { GitHubRepository } from '../../models/github-repository'
 import { IAvatarUser, getAvatarUsersForCommit } from '../../models/avatar'
 import { RichText } from '../lib/rich-text'
@@ -27,8 +29,20 @@ import { Emoji } from '../../lib/emoji'
 import { enableAccessibleListToolTips } from '../../lib/feature-flag'
 import { TooltippedContent } from '../lib/tooltipped-content'
 import { formatDate } from '../../lib/format-date'
+import {
+  IGitLabJobStatus,
+  getJobStatusColor,
+  GitLabJobStatusColor,
+} from '../../lib/gitlab/gitlab-api'
+import { gitLabPipelineStatusStore } from '../../lib/stores/gitlab-pipeline-status-store'
 
 interface ICommitProps {
+  /**
+   * The repository this commit belongs to, if known. Used to look up
+   * GitLab pipeline statuses for this commit. `null`/`undefined` disables
+   * the pipeline status dot entirely.
+   */
+  readonly repository?: Repository | null
   readonly gitHubRepository: GitHubRepository | null
   readonly commit: Commit
   readonly selectedCommits: ReadonlyArray<Commit>
@@ -54,6 +68,13 @@ interface ICommitProps {
 
 interface ICommitListItemState {
   readonly avatarUsers: ReadonlyArray<IAvatarUser>
+
+  /**
+   * Cached GitLab CI/CD job statuses for this commit, or `undefined` if
+   * none are cached (yet, or because there's no resolvable GitLab
+   * repository/token).
+   */
+  readonly gitLabJobStatuses: ReadonlyArray<IGitLabJobStatus> | undefined
 }
 
 /** A component which displays a single commit in a commit list. */
@@ -69,6 +90,23 @@ export class CommitListItem extends React.PureComponent<
         props.gitHubRepository,
         props.commit
       ),
+      gitLabJobStatuses: undefined,
+    }
+  }
+
+  private gitLabPipelineStatusSubscription: Disposable | null = null
+
+  public componentDidMount() {
+    this.gitLabPipelineStatusSubscription = gitLabPipelineStatusStore.onDidUpdate(
+      () => this.refreshGitLabJobStatuses()
+    )
+    this.refreshGitLabJobStatuses()
+  }
+
+  public componentWillUnmount() {
+    if (this.gitLabPipelineStatusSubscription !== null) {
+      this.gitLabPipelineStatusSubscription.dispose()
+      this.gitLabPipelineStatusSubscription = null
     }
   }
 
@@ -80,6 +118,32 @@ export class CommitListItem extends React.PureComponent<
           nextProps.commit
         ),
       })
+    }
+
+    if (
+      nextProps.commit !== this.props.commit ||
+      nextProps.repository !== this.props.repository
+    ) {
+      this.refreshGitLabJobStatuses(nextProps)
+    }
+  }
+
+  private refreshGitLabJobStatuses = (props: ICommitProps = this.props) => {
+    const { repository, commit } = props
+    if (repository === null || repository === undefined) {
+      return
+    }
+
+    const statuses = gitLabPipelineStatusStore.getOrFetchCommitStatuses(
+      repository,
+      commit.sha
+    )
+
+    // Only setState when the returned array reference actually changed, so
+    // this doesn't cause excessive re-renders of this PureComponent as
+    // `onDidUpdate` fires for unrelated repositories/commits too.
+    if (statuses !== this.state.gitLabJobStatuses) {
+      this.setState({ gitLabJobStatuses: statuses })
     }
   }
 
@@ -180,17 +244,42 @@ export class CommitListItem extends React.PureComponent<
   private renderCommitIndicators() {
     const tagIndicator = renderCommitListItemTags(this.props.commit.tags)
     const unpushedIndicator = this.renderUnpushedIndicator()
+    const gitLabPipelineIndicator = this.renderGitLabPipelineIndicator()
 
-    if (tagIndicator || unpushedIndicator) {
+    if (tagIndicator || unpushedIndicator || gitLabPipelineIndicator) {
       return (
         <div className="commit-indicators">
           {tagIndicator}
           {unpushedIndicator}
+          {gitLabPipelineIndicator}
         </div>
       )
     }
 
     return null
+  }
+
+  private renderGitLabPipelineIndicator() {
+    const { gitLabJobStatuses } = this.state
+    if (gitLabJobStatuses === undefined || gitLabJobStatuses.length === 0) {
+      return null
+    }
+
+    const color = getAggregateJobStatusColor(gitLabJobStatuses)
+    const tooltip = gitLabJobStatuses
+      .map(job => `${job.name}: ${job.status}`)
+      .join('\n')
+
+    return (
+      <TooltippedContent
+        tagName="div"
+        className="gitlab-pipeline-indicator"
+        tooltip={tooltip}
+        disabled={enableAccessibleListToolTips()}
+      >
+        <span className={`gitlab-job-dot gitlab-job-dot-${color}`} />
+      </TooltippedContent>
+    )
   }
 
   private renderUnpushedIndicator() {
@@ -246,6 +335,45 @@ function renderRelativeTime(date: Date, preferAbsoluteDates: boolean) {
       )}
     </>
   )
+}
+
+/**
+ * Pick the "worst" status across a commit's GitLab CI/CD jobs to represent
+ * as a single aggregated dot, using this priority order (worst first):
+ * failed (red) > running/pending/created (yellow) >
+ * canceled/skipped/manual (grey) > success (green).
+ */
+function getAggregateJobStatusColor(
+  jobStatuses: ReadonlyArray<IGitLabJobStatus>
+): GitLabJobStatusColor {
+  const statuses = new Set(jobStatuses.map(job => job.status))
+
+  if (statuses.has('failed')) {
+    return 'red'
+  }
+
+  if (
+    statuses.has('running') ||
+    statuses.has('pending') ||
+    statuses.has('created')
+  ) {
+    return 'yellow'
+  }
+
+  if (
+    statuses.has('canceled') ||
+    statuses.has('skipped') ||
+    statuses.has('manual')
+  ) {
+    return 'grey'
+  }
+
+  // Only remaining case per the priority order is everything being
+  // `success` (or some other/unknown status, which getJobStatusColor also
+  // treats as grey).
+  return jobStatuses.every(job => job.status === 'success')
+    ? 'green'
+    : getJobStatusColor(jobStatuses[0].status)
 }
 
 function renderCommitListItemTags(tags: ReadonlyArray<string>) {

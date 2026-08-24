@@ -35,8 +35,12 @@ import { PopupType } from '../../models/popup'
 import { Button } from '../lib/button'
 import { IMatches } from '../../lib/fuzzy-find'
 import { TooltippedContent } from '../lib/tooltipped-content'
+import { Loading } from '../lib/loading'
 import { getGitLabToken } from '../../lib/gitlab/gitlab-token'
-import { getJobStatusColor } from '../../lib/gitlab/gitlab-api'
+import {
+  IGitLabJobStatus,
+  getJobStatusColor,
+} from '../../lib/gitlab/gitlab-api'
 import {
   IGitLabPipelineStatusMap,
   gitLabPipelineStatusStore,
@@ -64,6 +68,15 @@ interface IRepositoriesSidebarProps {
   readonly externalEditorLabel?: string
   readonly shellLabel?: string
   readonly dispatcher: Dispatcher
+
+  /**
+   * The sha of the currently selected repository's tip commit, or `null` if
+   * there isn't one (no repository selected, unborn branch, etc.). Used
+   * purely to detect branch switches/new commits so pipeline statuses for
+   * the selected repository can be refetched immediately instead of
+   * waiting for the periodic poll.
+   */
+  readonly selectedRepositoryTipSha: string | null
 }
 
 interface IGroupSection {
@@ -85,6 +98,9 @@ interface IRepositoriesSidebarState {
 
   /** Latest known GitLab pipeline job statuses, keyed by repository id. */
   readonly pipelineStatuses: IGitLabPipelineStatusMap
+
+  /** Ids of jobs currently being "played" (manual job run in flight). */
+  readonly playingJobIds: ReadonlySet<number>
 }
 
 /**
@@ -110,6 +126,7 @@ export class RepositoriesSidebar extends React.Component<
       draggedRepositoryId: null,
       dragOverGroupId: null,
       pipelineStatuses: gitLabPipelineStatusStore.getStatuses(),
+      playingJobIds: new Set(),
     }
   }
 
@@ -126,6 +143,15 @@ export class RepositoriesSidebar extends React.Component<
     this.startPollingIfTokenConfigured()
   }
 
+  public componentDidUpdate(prevProps: IRepositoriesSidebarProps) {
+    if (
+      prevProps.selectedRepositoryTipSha !==
+      this.props.selectedRepositoryTipSha
+    ) {
+      this.refetchSelectedRepositoryPipelineStatusIfTokenConfigured()
+    }
+  }
+
   public componentWillUnmount() {
     if (this.pipelineStatusesInterval !== null) {
       window.clearInterval(this.pipelineStatusesInterval)
@@ -136,6 +162,27 @@ export class RepositoriesSidebar extends React.Component<
       this.pipelineStatusStoreSubscription.dispose()
       this.pipelineStatusStoreSubscription = null
     }
+  }
+
+  /**
+   * Immediately refresh the selected repository's pipeline statuses,
+   * bypassing the periodic poll — used when the selected repository's tip
+   * commit changes (branch switch, new commit, etc). A no-op when there's
+   * no GitLab token configured (this feature is fully inert without one)
+   * or when the selected repository isn't a real, on-disk `Repository`.
+   */
+  private async refetchSelectedRepositoryPipelineStatusIfTokenConfigured() {
+    const selectedRepository = this.props.selectedRepository
+    if (!(selectedRepository instanceof Repository)) {
+      return
+    }
+
+    const gitlabToken = await getGitLabToken()
+    if (gitlabToken === null) {
+      return
+    }
+
+    gitLabPipelineStatusStore.refresh([selectedRepository])
   }
 
   private async startPollingIfTokenConfigured() {
@@ -458,9 +505,66 @@ export class RepositoriesSidebar extends React.Component<
     )
   }
 
+  private onPlayJobClick = (
+    repository: Repositoryish,
+    job: IGitLabJobStatus,
+    event: React.MouseEvent
+  ) => {
+    event.stopPropagation()
+
+    if (!(repository instanceof Repository)) {
+      return
+    }
+
+    if (this.state.playingJobIds.has(job.id)) {
+      return
+    }
+
+    this.setState(prevState => {
+      const playingJobIds = new Set(prevState.playingJobIds)
+      playingJobIds.add(job.id)
+      return { playingJobIds }
+    })
+
+    gitLabPipelineStatusStore
+      .playJob(repository, job.id)
+      .catch(e => log.error(`Failed to play GitLab job '${job.name}'`, e))
+      .then(() => {
+        this.setState(prevState => {
+          const playingJobIds = new Set(prevState.playingJobIds)
+          playingJobIds.delete(job.id)
+          return { playingJobIds }
+        })
+      })
+  }
+
   private renderPipelineStatus(repository: Repositoryish) {
     const jobs = this.state.pipelineStatuses.get(repository.id)
+
     if (jobs === undefined || jobs.length === 0) {
+      // Only show a loading indicator once we know this repository
+      // actually resolves to a GitLab project (i.e. the store has marked
+      // it as fetching) — a plain, non-GitLab repository should never
+      // show a spinner. Once we have cached jobs already, a background
+      // refresh keeps showing the existing dots rather than flickering to
+      // a spinner, so this only applies to the very first fetch.
+      if (
+        repository instanceof Repository &&
+        gitLabPipelineStatusStore.isFetching(repository.id)
+      ) {
+        return (
+          <div className="gitlab-pipeline-status">
+            <TooltippedContent
+              className="gitlab-job-dot-wrapper"
+              tagName="span"
+              tooltip="Fetching GitLab pipeline status…"
+            >
+              <Loading />
+            </TooltippedContent>
+          </div>
+        )
+      }
+
       return null
     }
 
@@ -471,13 +575,29 @@ export class RepositoriesSidebar extends React.Component<
             key={`${job.name}-${index}`}
             className="gitlab-job-dot-wrapper"
             tagName="span"
-            tooltip={job.name}
+            tooltip={
+              job.status === 'manual' ? `Run "${job.name}"` : job.name
+            }
           >
-            <span
-              className={`gitlab-job-dot gitlab-job-dot-${getJobStatusColor(
-                job.status
-              )}`}
-            />
+            {job.status === 'manual' ? (
+              <button
+                type="button"
+                className={classNames('gitlab-job-play-button', {
+                  playing: this.state.playingJobIds.has(job.id),
+                })}
+                disabled={this.state.playingJobIds.has(job.id)}
+                onClick={event => this.onPlayJobClick(repository, job, event)}
+                aria-label={`Run "${job.name}"`}
+              >
+                <Octicon symbol={octicons.play} />
+              </button>
+            ) : (
+              <span
+                className={`gitlab-job-dot gitlab-job-dot-${getJobStatusColor(
+                  job.status
+                )}`}
+              />
+            )}
           </TooltippedContent>
         ))}
       </div>

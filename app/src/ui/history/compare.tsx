@@ -241,6 +241,7 @@ export class CompareSidebar extends React.Component<
     return (
       <CommitList
         ref={this.commitListRef}
+        repository={this.props.repository}
         gitHubRepository={this.props.repository.gitHubRepository}
         isLocalRepository={this.props.isLocalRepository}
         commitLookup={this.props.commitLookup}

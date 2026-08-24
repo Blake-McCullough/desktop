@@ -2,6 +2,7 @@ import * as React from 'react'
 import memoize from 'memoize-one'
 import { GitHubRepository } from '../../models/github-repository'
 import { Commit, CommitOneLine } from '../../models/commit'
+import { Repository } from '../../models/repository'
 import { CommitListItem } from './commit-list-item'
 import { KeyboardInsertionData, List } from '../lib/list'
 import { arrayEquals } from '../../lib/equality'
@@ -33,6 +34,14 @@ import * as octicons from '../octicons/octicons.generated'
 const RowHeight = 50
 
 interface ICommitListProps {
+  /**
+   * The repository this commit list belongs to, if known. Used to look up
+   * GitLab pipeline statuses for individual commits. Optional (and `null`
+   * where not applicable) so call sites that don't have a `Repository` on
+   * hand (e.g. the unreachable commits dialog) don't need to be touched.
+   */
+  readonly repository?: Repository | null
+
   /** The GitHub repository associated with this commit (if found) */
   readonly gitHubRepository: GitHubRepository | null
 
@@ -292,6 +301,7 @@ export class CommitList extends React.Component<
     return (
       <CommitListItem
         key={commit.sha}
+        repository={this.props.repository ?? null}
         gitHubRepository={this.props.gitHubRepository}
         showUnpushedIndicator={showUnpushedIndicator}
         unpushedIndicatorTitle={this.getUnpushedIndicatorTitle(
