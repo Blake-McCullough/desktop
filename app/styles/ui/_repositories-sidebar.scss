@@ -124,4 +124,43 @@
       padding: 0;
     }
   }
+
+  // Small colored dots representing the latest GitLab CI/CD pipeline job
+  // statuses for a repository, shown next to its ahead/behind and
+  // uncommitted-changes indicators. Reuses the existing --status-*-color
+  // variables used elsewhere for PR/check status colors.
+  .gitlab-pipeline-status {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: var(--spacing-half);
+    flex-shrink: 0;
+  }
+
+  .gitlab-job-dot-wrapper {
+    display: flex;
+  }
+
+  .gitlab-job-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+
+    &.gitlab-job-dot-green {
+      background-color: var(--status-success-color);
+    }
+
+    &.gitlab-job-dot-red {
+      background-color: var(--status-error-color);
+    }
+
+    &.gitlab-job-dot-yellow {
+      background-color: var(--status-pending-color);
+    }
+
+    &.gitlab-job-dot-grey {
+      background-color: var(--text-secondary-color);
+    }
+  }
 }

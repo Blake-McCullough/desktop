@@ -5,6 +5,7 @@ import { Dispatcher } from '../dispatcher'
 import { TabBar, TabBarType } from '../tab-bar'
 import { Accounts } from './accounts'
 import { Advanced } from './advanced'
+import { GitLab } from './gitlab'
 import { Git } from './git'
 import { assertNever } from '../../lib/fatal-error'
 import { Dialog, DialogFooter, DialogError } from '../dialog'
@@ -42,6 +43,10 @@ import { Prompts } from './prompts'
 import { Repository } from '../../models/repository'
 import { Notifications } from './notifications'
 import { Accessibility } from './accessibility'
+import {
+  getGitLabToken,
+  setGitLabToken,
+} from '../../lib/gitlab/gitlab-token'
 import { CopilotPreferences } from './copilot'
 import type {
   CopilotFeature,
@@ -186,6 +191,14 @@ interface IPreferencesState {
   readonly selectedTimeFormat?: TimeFormat
   readonly selectedNumberFormat?: INumberFormat
   readonly preferAbsoluteDates?: boolean
+
+  /**
+   * The GitLab personal access token as currently edited. `undefined`
+   * while the stored value is still being loaded asynchronously, `null`
+   * if none is configured.
+   */
+  readonly gitlabToken?: string | null
+  readonly initialGitlabToken?: string | null
 }
 
 /**
@@ -256,10 +269,17 @@ export class Preferences extends React.Component<
       selectedTimeFormat: getTimeFormatPreference(),
       selectedNumberFormat: getNumberFormatPreference(),
       preferAbsoluteDates: getPreferAbsoluteDates(),
+      gitlabToken: undefined,
+      initialGitlabToken: undefined,
     }
   }
 
   public async componentWillMount() {
+    // Loaded independently (and not awaited alongside the rest of the
+    // preferences below) since it goes through keytar/OS secure storage
+    // rather than the synchronous getters most other preferences use.
+    this.loadGitLabToken()
+
     const initialCommitterName = await getGlobalConfigValue('user.name')
     const initialCommitterEmail = await getGlobalConfigValue('user.email')
     const initialDefaultBranch = await getDefaultBranch()
@@ -333,6 +353,15 @@ export class Preferences extends React.Component<
     })
   }
 
+  private async loadGitLabToken() {
+    const gitlabToken = await getGitLabToken()
+    this.setState({ gitlabToken, initialGitlabToken: gitlabToken })
+  }
+
+  private onGitLabTokenChanged = (gitlabToken: string) => {
+    this.setState({ gitlabToken })
+  }
+
   private onCancel = () => {
     if (this.state.initiallySelectedTheme !== this.props.selectedTheme) {
       this.onSelectedThemeChanged(this.state.initiallySelectedTheme)
@@ -397,6 +426,10 @@ export class Preferences extends React.Component<
               <Octicon className="icon" symbol={octicons.accessibility} />
               Accessibility
             </span>
+            <span id={this.getTabId(PreferencesTab.GitLab)}>
+              <Octicon className="icon" symbol={octicons.rocket} />
+              GitLab
+            </span>
           </TabBar>
 
           {this.renderActiveTab()}
@@ -435,6 +468,9 @@ export class Preferences extends React.Component<
         break
       case PreferencesTab.Accessibility:
         suffix = 'accessibility'
+        break
+      case PreferencesTab.GitLab:
+        suffix = 'gitlab'
         break
       default:
         return assertNever(tab, `Unknown tab type: ${tab}`)
@@ -714,6 +750,14 @@ export class Preferences extends React.Component<
             showDiffCheckMarks={this.state.showDiffCheckMarks}
             onShowDiffCheckMarksChanged={this.onShowDiffCheckMarksChanged}
             onUnderlineLinksChanged={this.onUnderlineLinksChanged}
+          />
+        )
+        break
+      case PreferencesTab.GitLab:
+        View = (
+          <GitLab
+            token={this.state.gitlabToken}
+            onTokenChanged={this.onGitLabTokenChanged}
           />
         )
         break
@@ -1120,6 +1164,10 @@ export class Preferences extends React.Component<
       if (this.state.preferAbsoluteDates !== undefined) {
         dispatcher.setPreferAbsoluteDates(this.state.preferAbsoluteDates)
       }
+    }
+
+    if (this.state.gitlabToken !== this.state.initialGitlabToken) {
+      await setGitLabToken(this.state.gitlabToken ?? null)
     }
 
     this.props.onDismissed()
