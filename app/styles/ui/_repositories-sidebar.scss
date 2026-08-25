@@ -159,9 +159,17 @@
 
   .gitlab-job-dot {
     display: inline-block;
+    box-sizing: border-box;
     width: 7px;
     height: 7px;
     border-radius: 50%;
+    // A group's background tint (see `.repositories-sidebar-group` above)
+    // sits directly behind these dots, so a fixed black border keeps them
+    // readable no matter what color tint (or none) is behind them. Kept
+    // black in both themes deliberately, rather than a theme variable —
+    // the point is a border that reliably contrasts against a light color
+    // wash, not one that blends into a dark background.
+    border: 1px solid #000;
 
     &.gitlab-job-dot-green {
       background-color: var(--status-success-color);

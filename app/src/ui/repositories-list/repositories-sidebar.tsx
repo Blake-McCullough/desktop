@@ -7,6 +7,7 @@ import { Repositoryish } from './group-repositories'
 import { RepositoryListItem } from './repository-list-item'
 import { generateRepositoryListContextMenu } from './repository-list-item-context-menu'
 import {
+  GroupColorPalette,
   ICustomRepositoryGroup,
   OtherGroupId,
   createCustomGroup,
@@ -16,8 +17,10 @@ import {
   getRepositoryGroupAssignments,
   getSidebarCollapsed,
   getSidebarWidth,
+  hexToRgba,
   renameCustomGroup,
   setGroupCollapsed,
+  setGroupColor,
   setRepositoryGroup,
   setSidebarCollapsed,
   setSidebarWidth,
@@ -85,6 +88,12 @@ interface IGroupSection {
   /** Whether this section is the built-in "Other" (ungrouped) section */
   readonly isOther: boolean
   readonly repositories: ReadonlyArray<Repositoryish>
+  /**
+   * The group's background tint color (a `#rrggbb` hex string), or
+   * `undefined` if it has none set. Always `undefined` for the "Other"
+   * section — it isn't a group the user named, so it isn't colorable.
+   */
+  readonly color?: string
 }
 
 interface IRepositoriesSidebarState {
@@ -260,6 +269,7 @@ export class RepositoriesSidebar extends React.Component<
           name: group.name,
           isOther: false,
           repositories: sortRepos(byGroup.get(group.id) ?? []),
+          color: group.color,
         })
       )
 
@@ -363,6 +373,34 @@ export class RepositoriesSidebar extends React.Component<
     this.refreshFromStore()
   }
 
+  private onSetGroupColor = (groupId: string, color: string | null) => {
+    setGroupColor(groupId, color)
+    this.refreshFromStore()
+  }
+
+  private buildGroupColorMenuItems = (section: IGroupSection): IMenuItem[] => {
+    const items: IMenuItem[] = [
+      {
+        label: 'None',
+        type: 'checkbox',
+        checked: section.color === undefined,
+        action: () => this.onSetGroupColor(section.id, null),
+      },
+      { type: 'separator' },
+    ]
+
+    for (const option of GroupColorPalette) {
+      items.push({
+        label: option.label,
+        type: 'checkbox',
+        checked: section.color === option.hex,
+        action: () => this.onSetGroupColor(section.id, option.hex),
+      })
+    }
+
+    return items
+  }
+
   private onItemContextMenu = (
     repository: Repositoryish,
     event: React.MouseEvent<HTMLDivElement>
@@ -412,6 +450,10 @@ export class RepositoriesSidebar extends React.Component<
       {
         label: 'Rename group…',
         action: () => this.onRenameGroup(section.id, section.name),
+      },
+      {
+        label: 'Set color',
+        submenu: this.buildGroupColorMenuItems(section),
       },
       {
         label: 'Delete group…',
@@ -625,12 +667,23 @@ export class RepositoriesSidebar extends React.Component<
     const isCollapsed = this.state.collapsedGroupIds.has(section.id)
     const isDragOver = this.state.dragOverGroupId === section.id
 
+    // A light tint of the group's chosen color behind its header and its
+    // repositories, so groups are easier to tell apart at a glance. Drawn
+    // as a low-alpha background rather than a solid color so it still
+    // reads clearly against the sidebar's normal background in both
+    // light and dark themes.
+    const style: React.CSSProperties | undefined =
+      section.color !== undefined
+        ? { backgroundColor: hexToRgba(section.color, 0.15) }
+        : undefined
+
     return (
       <div
         key={section.id}
         className={classNames('repositories-sidebar-group', {
           'drag-over': isDragOver,
         })}
+        style={style}
         onDragOver={event => this.onGroupDragOver(section.id, event)}
         onDragLeave={() => this.onGroupDragLeave(section.id)}
         onDrop={event => this.onGroupDrop(section.id, event)}

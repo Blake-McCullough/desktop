@@ -11,6 +11,57 @@ import {
 export interface ICustomRepositoryGroup {
   readonly id: string
   readonly name: string
+  /**
+   * A hex color (e.g. `'#e53935'`) used to tint the group's background in
+   * the sidebar, or `undefined` if the group has no color set. One of
+   * `GroupColorPalette`'s `hex` values, though nothing enforces that.
+   */
+  readonly color?: string
+}
+
+/** A preset color choice offered when setting a group's color. */
+export interface IGroupColorOption {
+  readonly id: string
+  readonly label: string
+  readonly hex: string
+}
+
+/**
+ * The preset colors offered for tinting a group's background. Kept to a
+ * small, curated palette (rather than a free-form color picker) since
+ * group colors are rendered as light background tints, not full-strength
+ * swatches — an arbitrary color could easily end up unreadable against
+ * the app's light/dark themes.
+ */
+export const GroupColorPalette: ReadonlyArray<IGroupColorOption> = [
+  { id: 'red', label: 'Red', hex: '#e53935' },
+  { id: 'orange', label: 'Orange', hex: '#f4511e' },
+  { id: 'yellow', label: 'Yellow', hex: '#f9a825' },
+  { id: 'green', label: 'Green', hex: '#43a047' },
+  { id: 'teal', label: 'Teal', hex: '#00897b' },
+  { id: 'blue', label: 'Blue', hex: '#1e88e5' },
+  { id: 'purple', label: 'Purple', hex: '#8e24aa' },
+  { id: 'pink', label: 'Pink', hex: '#d81b60' },
+  { id: 'grey', label: 'Grey', hex: '#757575' },
+]
+
+/**
+ * Convert a `#rrggbb` hex color into an `rgba(...)` string at the given
+ * alpha, for use as a light background tint. Falls back to fully
+ * transparent if `hex` isn't a recognizable `#rrggbb` string.
+ */
+export function hexToRgba(hex: string, alpha: number): string {
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex)
+  if (match === null) {
+    return 'rgba(0, 0, 0, 0)'
+  }
+
+  const value = match[1]
+  const r = parseInt(value.substring(0, 2), 16)
+  const g = parseInt(value.substring(2, 4), 16)
+  const b = parseInt(value.substring(4, 6), 16)
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
 /**
@@ -63,6 +114,19 @@ export function renameCustomGroup(groupId: string, name: string) {
   writeData({
     ...data,
     groups: data.groups.map(g => (g.id === groupId ? { ...g, name } : g)),
+  })
+}
+
+/**
+ * Set (or, passing `null`, clear) a custom group's background tint color.
+ */
+export function setGroupColor(groupId: string, color: string | null) {
+  const data = readData()
+  writeData({
+    ...data,
+    groups: data.groups.map(g =>
+      g.id === groupId ? { ...g, color: color ?? undefined } : g
+    ),
   })
 }
 
