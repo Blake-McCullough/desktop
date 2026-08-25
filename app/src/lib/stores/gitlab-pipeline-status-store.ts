@@ -12,6 +12,38 @@ import {
   playGitLabJob,
 } from '../gitlab/gitlab-api'
 
+/**
+ * How many repositories to refresh concurrently. Refreshing a repository
+ * spawns a git process and makes a network request, so refreshing every
+ * repository at once — which is what a plain `Promise.all` over the full
+ * list would do — can pile up enough simultaneous work to stall the app,
+ * especially with a lot of repositories.
+ */
+const RefreshConcurrency = 4
+
+/**
+ * Run `fn` over `items`, but never more than `concurrency` at a time.
+ */
+async function mapWithConcurrency<T>(
+  items: ReadonlyArray<T>,
+  concurrency: number,
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  const queue = [...items]
+
+  const worker = async () => {
+    let item = queue.shift()
+    while (item !== undefined) {
+      await fn(item)
+      item = queue.shift()
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, worker)
+  )
+}
+
 /** Latest known GitLab pipeline job statuses, keyed by repository id. */
 export type IGitLabPipelineStatusMap = ReadonlyMap<
   number,
@@ -50,6 +82,20 @@ class GitLabPipelineStatusStore extends TypedBaseStore<IGitLabPipelineStatusMap>
    * that isn't hosted on GitLab never shows up here.
    */
   private fetchingRepositoryIds = new Set<number>()
+
+  /**
+   * Commit cache keys (`` `${repositoryId}:${sha}` ``) for which a
+   * background fetch is already in flight. Without this, every mounted
+   * `CommitListItem` re-calls `getOrFetchCommitStatuses` on every
+   * `onDidUpdate` event (which now fires twice per repository per
+   * refresh, once when fetching starts and once when it finishes) — with
+   * no de-duplication, that started a *new* fetch (a git process spawn
+   * plus a network request) for the same still-unresolved commit on every
+   * single one of those events, for every visible row, which is what was
+   * actually freezing the app: an unbounded, ever-growing pile of
+   * concurrent git spawns and network requests, not just one slow fetch.
+   */
+  private pendingCommitFetchKeys = new Set<string>()
 
   /** Read the current cached statuses without triggering a fetch. */
   public getStatuses(): IGitLabPipelineStatusMap {
@@ -93,10 +139,13 @@ class GitLabPipelineStatusStore extends TypedBaseStore<IGitLabPipelineStatusMap>
     // switch) — replacing the whole map with only that one repository's
     // result would wipe out the cached statuses for every other
     // repository in the sidebar.
-    await Promise.all(
-      repositories.map(repository =>
-        this.refreshRepository(repository, gitlabToken)
-      )
+    //
+    // Repositories are refreshed a few at a time rather than all at once
+    // (each one spawns a git process and makes a network request) — for
+    // anyone with a lot of repositories, firing all of them simultaneously
+    // is exactly the kind of burst that can make the whole app stutter.
+    await mapWithConcurrency(repositories, RefreshConcurrency, repository =>
+      this.refreshRepository(repository, gitlabToken)
     )
   }
 
@@ -149,6 +198,14 @@ class GitLabPipelineStatusStore extends TypedBaseStore<IGitLabPipelineStatusMap>
     repositoryId: number
     statuses: ReadonlyArray<IGitLabJobStatus>
   } | null> {
+    // Don't start a second, overlapping fetch for a repository that's
+    // already being refreshed (e.g. the periodic timer firing while a
+    // branch-switch-triggered refresh for the same repository hasn't
+    // finished yet).
+    if (this.fetchingRepositoryIds.has(repository.id)) {
+      return null
+    }
+
     let markedFetching = false
 
     try {
@@ -259,7 +316,16 @@ class GitLabPipelineStatusStore extends TypedBaseStore<IGitLabPipelineStatusMap>
       return cached
     }
 
-    this.fetchCommitStatuses(repository, sha, key)
+    // Without this guard, every mounted commit row re-calls this method
+    // on every store update and — since a cache miss unconditionally
+    // kicked off a brand new fetch — that meant a fresh git spawn plus
+    // network request *per event, per visible row*, piling up without
+    // bound instead of just waiting for the one fetch already in flight.
+    if (!this.pendingCommitFetchKeys.has(key)) {
+      this.pendingCommitFetchKeys.add(key)
+      this.fetchCommitStatuses(repository, sha, key)
+    }
+
     return undefined
   }
 
@@ -309,6 +375,8 @@ class GitLabPipelineStatusStore extends TypedBaseStore<IGitLabPipelineStatusMap>
         `Failed to fetch GitLab commit statuses for '${repository.name}' at ${sha}`,
         e
       )
+    } finally {
+      this.pendingCommitFetchKeys.delete(key)
     }
   }
 }
