@@ -138,6 +138,7 @@ import classNames from 'classnames'
 import { MoveToApplicationsFolder } from './move-to-applications-folder'
 import { ChangeRepositoryAlias } from './change-repository-alias/change-repository-alias-dialog'
 import { RepositoryGroupNameDialog } from './repositories-list/repository-group-name-dialog'
+import { RepositoryGroupColorDialog } from './repositories-list/repository-group-color-dialog'
 import { ThankYou } from './thank-you'
 import {
   getUserContributions,
@@ -2411,6 +2412,16 @@ export class App extends React.Component<IAppProps, IAppState> {
             key="repository-group-name"
             title={popup.title}
             okButtonText={popup.okButtonText}
+            defaultValue={popup.defaultValue}
+            onSubmit={popup.onSubmit}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
+      case PopupType.RepositoryGroupColorPrompt: {
+        return (
+          <RepositoryGroupColorDialog
+            key="repository-group-color"
             defaultValue={popup.defaultValue}
             onSubmit={popup.onSubmit}
             onDismissed={onPopupDismissedFn}

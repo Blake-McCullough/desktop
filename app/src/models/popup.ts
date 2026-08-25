@@ -119,6 +119,7 @@ export enum PopupType {
   CopilotConflictResolutionAlwaysNudge = 'CopilotConflictResolutionAlwaysNudge',
   DeleteWorktreeFailed = 'DeleteWorktreeFailed',
   RepositoryGroupNamePrompt = 'RepositoryGroupNamePrompt',
+  RepositoryGroupColorPrompt = 'RepositoryGroupColorPrompt',
 }
 
 interface IBasePopup {
@@ -546,5 +547,12 @@ export type PopupDetail =
       defaultValue?: string
       /** Called with the entered (trimmed, non-empty) name when the user submits */
       onSubmit: (name: string) => void
+    }
+  | {
+      type: PopupType.RepositoryGroupColorPrompt
+      /** The group's current color, if it has one, to pre-fill the field */
+      defaultValue?: string
+      /** Called with the entered, normalized `#rrggbb` hex color when the user submits */
+      onSubmit: (hex: string) => void
     }
 export type Popup = IBasePopup & PopupDetail

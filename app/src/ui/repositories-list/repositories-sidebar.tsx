@@ -378,7 +378,19 @@ export class RepositoriesSidebar extends React.Component<
     this.refreshFromStore()
   }
 
+  private onCustomGroupColorClick = (section: IGroupSection) => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.RepositoryGroupColorPrompt,
+      defaultValue: section.color,
+      onSubmit: hex => this.onSetGroupColor(section.id, hex),
+    })
+  }
+
   private buildGroupColorMenuItems = (section: IGroupSection): IMenuItem[] => {
+    const isCustomColor =
+      section.color !== undefined &&
+      !GroupColorPalette.some(option => option.hex === section.color)
+
     const items: IMenuItem[] = [
       {
         label: 'None',
@@ -397,6 +409,16 @@ export class RepositoriesSidebar extends React.Component<
         action: () => this.onSetGroupColor(section.id, option.hex),
       })
     }
+
+    items.push({ type: 'separator' })
+    items.push({
+      label: isCustomColor
+        ? `Custom (${section.color})…`
+        : 'Custom color…',
+      type: 'checkbox',
+      checked: isCustomColor,
+      action: () => this.onCustomGroupColorClick(section),
+    })
 
     return items
   }
