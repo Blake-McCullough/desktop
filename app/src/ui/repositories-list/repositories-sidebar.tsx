@@ -236,15 +236,32 @@ export class RepositoriesSidebar extends React.Component<
         }
       }
 
-      const sortRepos = (repos: ReadonlyArray<Repositoryish>) =>
-        [...repos].sort((x, y) => caseInsensitiveCompare(x.name, y.name))
+      // Sort by alias when the repository has one set, falling back to
+      // its plain name otherwise — matches what's actually displayed in
+      // the list.
+      const getDisplayName = (repo: Repositoryish): string =>
+        (repo instanceof Repository ? repo.alias : null) ?? repo.name
 
-      const sections: Array<IGroupSection> = customGroups.map(group => ({
-        id: group.id,
-        name: group.name,
-        isOther: false,
-        repositories: sortRepos(byGroup.get(group.id) ?? []),
-      }))
+      const sortRepos = (repos: ReadonlyArray<Repositoryish>) =>
+        [...repos].sort((x, y) =>
+          caseInsensitiveCompare(getDisplayName(x), getDisplayName(y))
+        )
+
+      // Custom groups are shown in alphabetical order by group name. The
+      // built-in "Other" section is always last, regardless of its name,
+      // since it's a catch-all rather than a group the user named.
+      const sortedCustomGroups = [...customGroups].sort((x, y) =>
+        caseInsensitiveCompare(x.name, y.name)
+      )
+
+      const sections: Array<IGroupSection> = sortedCustomGroups.map(
+        group => ({
+          id: group.id,
+          name: group.name,
+          isOther: false,
+          repositories: sortRepos(byGroup.get(group.id) ?? []),
+        })
+      )
 
       sections.push({
         id: OtherGroupId,

@@ -95,7 +95,11 @@ export function getWindowsDeltaNugetPackagePath() {
 }
 
 export function getWindowsIdentifierName() {
-  return 'GitHubDesktop'
+  // Deliberately different from the official app's identifier
+  // ('GitHubDesktop') so this custom build installs as a separate app,
+  // in its own folder, with its own Start Menu entry, and can never be
+  // touched by (or touch) the official app's auto-updater.
+  return 'GitHubDesktopCustom'
 }
 
 export function getBundleSizes() {

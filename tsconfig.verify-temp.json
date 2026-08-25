@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "app/src/ui/app.tsx",
+    "app/src/ui/repositories-list/repositories-sidebar.tsx"
+  ]
+}
