@@ -1,41 +1,92 @@
-import { TypedBaseStore } from './base-store'
+import { Emitter, Disposable } from 'event-kit'
 import { Repository } from '../../models/repository'
 import { getRemotes } from '../git/remote'
 import { git } from '../git/core'
-import { getGitLabToken } from '../gitlab/gitlab-token'
 import {
-  IGitLabJobStatus,
+  getGitLabInstanceUrls,
+  getGitLabToken,
+  onGitLabSettingsChanged,
+} from '../gitlab/gitlab-token'
+import {
+  GitLabApiError,
+  IGitLabPipelineInfo,
   IGitLabProject,
-  fetchLatestCommitStatuses,
-  isLikelyGitLabHost,
+  fetchPipelineForCommit,
+  isActiveStatus,
   parseGitLabProject,
   playGitLabJob,
+  resolveGitLabInstance,
 } from '../gitlab/gitlab-api'
 
-/**
- * How many repositories to refresh concurrently. Refreshing a repository
- * spawns a git process and makes a network request, so refreshing every
- * repository at once — which is what a plain `Promise.all` over the full
- * list would do — can pile up enough simultaneous work to stall the app,
- * especially with a lot of repositories.
- */
+/** How many repositories to refresh concurrently. */
 const RefreshConcurrency = 4
 
+/** Poll interval when nothing is running. */
+const IdlePollIntervalMs = 3 * 60 * 1000
+
+/** Poll interval while at least one pipeline is running or pending. */
+const ActivePollIntervalMs = 30 * 1000
+
+/** How long to remember which GitLab project (if any) a repository maps to. */
+const ProjectCacheTtlMs = 10 * 60 * 1000
+
+/** How long to back off from a project GitLab says doesn't exist (404/403). */
+const NotFoundBackoffMs = 30 * 60 * 1000
+
 /**
- * Run `fn` over `items`, but never more than `concurrency` at a time.
+ * A finished pipeline for an unchanged HEAD won't change, so there's no need
+ * to ask GitLab about it on every poll. Re-check occasionally anyway in case
+ * a job was retried.
  */
+const FinishedPipelineTtlMs = 10 * 60 * 1000
+
+/** Max number of per-commit results kept in memory. */
+const MaxCommitCacheEntries = 300
+
+/** Per-commit cache lifetimes. */
+const CommitActiveTtlMs = 30 * 1000
+const CommitFinishedTtlMs = 60 * 60 * 1000
+const CommitNoPipelineTtlMs = 5 * 60 * 1000
+
+/** Pipeline state for one repository's current HEAD. */
+export interface IRepositoryPipelineState {
+  /** The latest pipeline for HEAD, or `null` if HEAD has none. */
+  readonly pipeline: IGitLabPipelineInfo | null
+  /** Whether a refresh is in flight. */
+  readonly isFetching: boolean
+  /** The last error, if the most recent refresh failed. */
+  readonly error: string | null
+  /** When the pipeline was last successfully fetched. */
+  readonly fetchedAt: number
+}
+
+/** Latest known pipeline states, keyed by repository id. */
+export type IGitLabPipelineStatusMap = ReadonlyMap<
+  number,
+  IRepositoryPipelineState
+>
+
+interface IProjectCacheEntry {
+  readonly project: IGitLabProject | null
+  readonly expiresAt: number
+}
+
+interface ICommitCacheEntry {
+  readonly pipeline: IGitLabPipelineInfo | null
+  readonly fetchedAt: number
+}
+
+/** Run `fn` over `items`, never more than `concurrency` at a time. */
 async function mapWithConcurrency<T>(
   items: ReadonlyArray<T>,
   concurrency: number,
   fn: (item: T) => Promise<void>
 ): Promise<void> {
-  const queue = [...items]
-
+  let next = 0
   const worker = async () => {
-    let item = queue.shift()
-    while (item !== undefined) {
+    while (next < items.length) {
+      const item = items[next++]
       await fn(item)
-      item = queue.shift()
     }
   }
 
@@ -44,339 +95,519 @@ async function mapWithConcurrency<T>(
   )
 }
 
-/** Latest known GitLab pipeline job statuses, keyed by repository id. */
-export type IGitLabPipelineStatusMap = ReadonlyMap<
-  number,
-  ReadonlyArray<IGitLabJobStatus>
->
+function describeError(e: unknown): string {
+  if (e instanceof GitLabApiError) {
+    if (e.isUnauthorized) {
+      return 'GitLab rejected the token (401). Check it in Preferences → GitLab.'
+    }
+    if (e.isForbidden) {
+      return "The GitLab token doesn't have access to this project."
+    }
+    return e.message
+  }
+  return e instanceof Error ? e.message : `${e}`
+}
 
 /**
- * A singleton store that owns fetching GitLab pipeline statuses for the
- * user's repositories, so that multiple UI surfaces (the repositories
- * sidebar, the GitLab preferences tab) can trigger and/or observe the same
- * fetch logic without needing a direct reference to one another.
+ * A singleton store that owns fetching GitLab pipeline statuses, both for
+ * each repository's HEAD (shown in the repositories sidebar) and for
+ * individual commits (shown in the history list).
+ *
+ * The store owns its own polling loop so it can be smart about it: it pauses
+ * while the window is hidden, speeds up while something is running, skips
+ * network requests for finished pipelines whose HEAD hasn't moved, and
+ * stops entirely when the token is rejected until the settings change.
  */
-class GitLabPipelineStatusStore extends TypedBaseStore<IGitLabPipelineStatusMap> {
-  private statuses: IGitLabPipelineStatusMap = new Map()
+class GitLabPipelineStatusStore {
+  private readonly emitter = new Emitter()
+  private statuses: Map<number, IRepositoryPipelineState> = new Map()
+
+  private readonly projects = new Map<number, IProjectCacheEntry>()
+  private readonly inFlightRepositoryIds = new Set<number>()
+
+  private readonly commitCache = new Map<string, ICommitCacheEntry>()
+  private readonly pendingCommitKeys = new Set<string>()
+  private readonly commitListeners = new Map<string, Set<() => void>>()
+
+  /** Set when GitLab rejects the token; cleared when settings change. */
+  private authError: string | null = null
+
+  private getRepositories: (() => ReadonlyArray<Repository>) | null = null
+  private pollTimer: number | null = null
+  private lastPollAt = 0
+  private emitScheduled = false
+  private readonly disposables: Array<Disposable> = []
+
+  public constructor() {
+    this.disposables.push(
+      onGitLabSettingsChanged(() => {
+        this.authError = null
+        this.projects.clear()
+        this.commitCache.clear()
+        this.statuses = new Map()
+        this.scheduleEmit()
+        this.pollNow()
+      })
+    )
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.onVisibilityChange)
+      window.addEventListener('online', this.onOnline)
+    }
+  }
+
+  /* ----------------------------- subscriptions ---------------------------- */
+
+  /** Subscribe to changes to per-repository statuses. */
+  public onDidUpdate(fn: (statuses: IGitLabPipelineStatusMap) => void) {
+    return this.emitter.on('did-update', fn)
+  }
+
+  /** Subscribe to changes to a single commit's pipeline. */
+  public onDidUpdateCommit(
+    repository: Repository,
+    sha: string,
+    fn: () => void
+  ): Disposable {
+    const key = this.commitKey(repository, sha)
+    let set = this.commitListeners.get(key)
+    if (set === undefined) {
+      set = new Set()
+      this.commitListeners.set(key, set)
+    }
+    set.add(fn)
+
+    return new Disposable(() => {
+      const listeners = this.commitListeners.get(key)
+      if (listeners !== undefined) {
+        listeners.delete(fn)
+        if (listeners.size === 0) {
+          this.commitListeners.delete(key)
+        }
+      }
+    })
+  }
 
   /**
-   * The resolved GitLab project (hostname/projectPath) for each repository,
-   * keyed by repository id. Populated as a side effect of `refresh()`
-   * resolving a repository's `origin` remote, so that follow-up actions
-   * (like playing a manual job) don't need to re-resolve remotes.
+   * Coalesce bursts of updates (e.g. a dozen repositories finishing in the
+   * same tick) into a single render.
    */
-  private projectsByRepositoryId = new Map<number, IGitLabProject>()
+  private scheduleEmit() {
+    if (this.emitScheduled) {
+      return
+    }
+    this.emitScheduled = true
+    setTimeout(() => {
+      this.emitScheduled = false
+      this.emitter.emit('did-update', this.statuses)
+    }, 50)
+  }
 
-  /**
-   * Latest known GitLab CI/CD job statuses for individual commits, keyed by
-   * `` `${repositoryId}:${sha}` ``. Populated on demand via
-   * `getOrFetchCommitStatuses`, independently of the per-repository HEAD
-   * statuses in `statuses`.
-   */
-  private commitStatuses = new Map<string, ReadonlyArray<IGitLabJobStatus>>()
-
-  /**
-   * Repository ids for which a GitLab pipeline-status fetch is currently
-   * in flight. Only ever populated for repositories that have already
-   * resolved to a GitLab project (see `resolveProject`) — a repository
-   * that isn't hosted on GitLab never shows up here.
-   */
-  private fetchingRepositoryIds = new Set<number>()
-
-  /**
-   * Commit cache keys (`` `${repositoryId}:${sha}` ``) for which a
-   * background fetch is already in flight. Without this, every mounted
-   * `CommitListItem` re-calls `getOrFetchCommitStatuses` on every
-   * `onDidUpdate` event (which now fires twice per repository per
-   * refresh, once when fetching starts and once when it finishes) — with
-   * no de-duplication, that started a *new* fetch (a git process spawn
-   * plus a network request) for the same still-unresolved commit on every
-   * single one of those events, for every visible row, which is what was
-   * actually freezing the app: an unbounded, ever-growing pile of
-   * concurrent git spawns and network requests, not just one slow fetch.
-   */
-  private pendingCommitFetchKeys = new Set<string>()
+  /* -------------------------------- reading ------------------------------- */
 
   /** Read the current cached statuses without triggering a fetch. */
   public getStatuses(): IGitLabPipelineStatusMap {
     return this.statuses
   }
 
-  /**
-   * Whether a GitLab pipeline-status fetch is currently in flight for the
-   * given repository. Always `false` for repositories that haven't been
-   * resolved to a GitLab project.
-   */
-  public isFetching(repositoryId: number): boolean {
-    return this.fetchingRepositoryIds.has(repositoryId)
+  /** The current authentication problem, if GitLab rejected the token. */
+  public getAuthError(): string | null {
+    return this.authError
   }
 
-  /** Read the current cached statuses for a single repository. */
-  public getStatusesForRepository(
-    id: number
-  ): ReadonlyArray<IGitLabJobStatus> | undefined {
-    return this.statuses.get(id)
-  }
+  /* -------------------------------- polling ------------------------------- */
 
   /**
-   * Refresh the cached pipeline statuses for the given repositories.
-   *
-   * If no GitLab token is configured, this is a no-op: no network requests,
-   * no git commands, and any previously cached statuses are left untouched.
+   * Start polling the given repositories' HEAD pipelines. Safe to call more
+   * than once — later calls just replace the repository source.
    */
-  public async refresh(
-    repositories: ReadonlyArray<Repository>
-  ): Promise<void> {
-    const gitlabToken = await getGitLabToken()
-    if (gitlabToken === null) {
+  public startPolling(getRepositories: () => ReadonlyArray<Repository>) {
+    this.getRepositories = getRepositories
+    if (this.pollTimer === null) {
+      this.pollNow()
+    }
+  }
+
+  public stopPolling() {
+    this.getRepositories = null
+    this.clearPollTimer()
+  }
+
+  private clearPollTimer() {
+    if (this.pollTimer !== null) {
+      window.clearTimeout(this.pollTimer)
+      this.pollTimer = null
+    }
+  }
+
+  private pollNow = () => {
+    this.clearPollTimer()
+    this.poll().finally(() => this.scheduleNextPoll())
+  }
+
+  private scheduleNextPoll() {
+    this.clearPollTimer()
+    if (this.getRepositories === null) {
       return
     }
 
-    // Each repository is refreshed (and merged into `this.statuses`)
-    // independently, rather than collecting every result and replacing
-    // the whole map at once. That matters because `refresh` is sometimes
-    // called with just a single repository (e.g. right after a branch
-    // switch) — replacing the whole map with only that one repository's
-    // result would wipe out the cached statuses for every other
-    // repository in the sidebar.
-    //
-    // Repositories are refreshed a few at a time rather than all at once
-    // (each one spawns a git process and makes a network request) — for
-    // anyone with a lot of repositories, firing all of them simultaneously
-    // is exactly the kind of burst that can make the whole app stutter.
+    // A chain of timeouts rather than setInterval: when the machine wakes
+    // from sleep, Chromium would otherwise fire every missed interval at
+    // once.
+    this.pollTimer = window.setTimeout(this.pollNow, this.getPollInterval())
+  }
+
+  private getPollInterval() {
+    for (const state of this.statuses.values()) {
+      if (state.pipeline !== null && isActiveStatus(state.pipeline.status)) {
+        return ActivePollIntervalMs
+      }
+    }
+    return IdlePollIntervalMs
+  }
+
+  private onVisibilityChange = () => {
+    if (
+      document.visibilityState === 'visible' &&
+      Date.now() - this.lastPollAt > this.getPollInterval()
+    ) {
+      this.pollNow()
+    }
+  }
+
+  private onOnline = () => {
+    if (Date.now() - this.lastPollAt > ActivePollIntervalMs) {
+      this.pollNow()
+    }
+  }
+
+  private async poll() {
+    if (this.getRepositories === null) {
+      return
+    }
+
+    // Don't do background work nobody can see. We'll catch up as soon as
+    // the window becomes visible again.
+    if (typeof document !== 'undefined' && document.hidden) {
+      return
+    }
+
+    this.lastPollAt = Date.now()
+    await this.refresh(this.getRepositories())
+  }
+
+  /* ------------------------------- refreshing ----------------------------- */
+
+  /**
+   * Refresh the pipeline statuses for the given repositories.
+   *
+   * No-op when no token is configured or the token was rejected.
+   */
+  public async refresh(
+    repositories: ReadonlyArray<Repository>,
+    options: { force?: boolean } = {}
+  ): Promise<void> {
+    const token = await getGitLabToken()
+    if (token === null || this.authError !== null) {
+      return
+    }
+
     await mapWithConcurrency(repositories, RefreshConcurrency, repository =>
-      this.refreshRepository(repository, gitlabToken)
+      this.refreshRepository(repository, token, options.force === true)
     )
+  }
+
+  private setRepositoryState(
+    repositoryId: number,
+    update: Partial<IRepositoryPipelineState>
+  ) {
+    const previous = this.statuses.get(repositoryId) ?? {
+      pipeline: null,
+      isFetching: false,
+      error: null,
+      fetchedAt: 0,
+    }
+    const statuses = new Map(this.statuses)
+    statuses.set(repositoryId, { ...previous, ...update })
+    this.statuses = statuses
+    this.scheduleEmit()
   }
 
   private async refreshRepository(
     repository: Repository,
-    gitlabToken: string
+    token: string,
+    force: boolean
   ): Promise<void> {
-    const result = await this.getPipelineStatusForRepository(
-      repository,
-      gitlabToken
-    )
-    if (result === null) {
+    if (repository.missing || this.inFlightRepositoryIds.has(repository.id)) {
       return
     }
 
-    const statuses = new Map(this.statuses)
-    statuses.set(result.repositoryId, result.statuses)
-    this.statuses = statuses
-    this.emitUpdate(this.statuses)
-  }
-
-  /**
-   * Resolve a repository's `origin` remote to a GitLab project, if
-   * possible. Callers that succeed should cache the result against the
-   * repository's id (see `projectsByRepositoryId`) so that later actions
-   * scoped to a single job (e.g. `playJob`) don't need to re-resolve
-   * remotes.
-   */
-  private async resolveProject(
-    repository: Repository
-  ): Promise<IGitLabProject | null> {
-    const remotes = await getRemotes(repository)
-    const origin = remotes.find(r => r.name === 'origin')
-    if (origin === undefined) {
-      return null
-    }
-
-    const project = parseGitLabProject(origin.url)
-    if (project === null || !isLikelyGitLabHost(project.hostname)) {
-      return null
-    }
-
-    return project
-  }
-
-  private async getPipelineStatusForRepository(
-    repository: Repository,
-    gitlabToken: string
-  ): Promise<{
-    repositoryId: number
-    statuses: ReadonlyArray<IGitLabJobStatus>
-  } | null> {
-    // Don't start a second, overlapping fetch for a repository that's
-    // already being refreshed (e.g. the periodic timer firing while a
-    // branch-switch-triggered refresh for the same repository hasn't
-    // finished yet).
-    if (this.fetchingRepositoryIds.has(repository.id)) {
-      return null
-    }
-
+    this.inFlightRepositoryIds.add(repository.id)
     let markedFetching = false
 
     try {
       const project = await this.resolveProject(repository)
       if (project === null) {
-        return null
+        if (this.statuses.has(repository.id)) {
+          const statuses = new Map(this.statuses)
+          statuses.delete(repository.id)
+          this.statuses = statuses
+          this.scheduleEmit()
+        }
+        return
       }
 
-      this.projectsByRepositoryId.set(repository.id, project)
+      const sha = await this.getHeadSha(repository)
+      if (sha === null) {
+        return
+      }
 
-      // Only once we know this repository actually resolves to a GitLab
-      // project do we surface a "fetching" state — a non-GitLab
-      // repository should never flash a loading spinner.
+      const previous = this.statuses.get(repository.id)
+      if (
+        !force &&
+        previous !== undefined &&
+        previous.error === null &&
+        previous.pipeline !== null &&
+        previous.pipeline.sha === sha &&
+        !isActiveStatus(previous.pipeline.status) &&
+        Date.now() - previous.fetchedAt < FinishedPipelineTtlMs
+      ) {
+        return
+      }
+
       markedFetching = true
-      this.fetchingRepositoryIds.add(repository.id)
-      this.emitUpdate(this.statuses)
+      this.setRepositoryState(repository.id, { isFetching: true })
 
-      const result = await git(
-        ['rev-parse', 'HEAD'],
-        repository.path,
-        'gitlabPipelineHeadSha'
-      )
-      const sha = result.stdout.trim()
-      if (sha.length === 0) {
-        return null
-      }
+      const pipeline = await fetchPipelineForCommit(project, sha, token)
+      this.setRepositoryState(repository.id, {
+        pipeline,
+        isFetching: false,
+        error: null,
+        fetchedAt: Date.now(),
+      })
 
-      const statuses = await fetchLatestCommitStatuses(
-        project.hostname,
-        project.projectPath,
-        sha,
-        gitlabToken
-      )
-
-      if (statuses === null) {
-        return null
-      }
-
-      // GitLab's API doesn't guarantee the returned statuses are in
-      // pipeline/stage order, so sort by job id (jobs are created in
-      // stage order, so ascending id is a reliable proxy for the order
-      // they should be displayed in) before handing them back.
-      const sortedStatuses = [...statuses].sort((a, b) => a.id - b.id)
-
-      return { repositoryId: repository.id, statuses: sortedStatuses }
+      // Keep the per-commit cache in sync so the history list doesn't need
+      // to ask again for HEAD.
+      this.storeCommitResult(this.commitKey(repository, sha), pipeline)
     } catch (e) {
-      // Any failure for a single repository (missing on disk, detached
-      // HEAD weirdness, network issues, etc.) should never crash the
-      // fetch or prevent other repositories from being refreshed.
-      log.error(
-        `Failed to refresh GitLab pipeline status for '${repository.name}'`,
-        e
-      )
-      return null
-    } finally {
+      this.handleError(repository, e)
       if (markedFetching) {
-        this.fetchingRepositoryIds.delete(repository.id)
-        this.emitUpdate(this.statuses)
+        this.setRepositoryState(repository.id, {
+          isFetching: false,
+          error: describeError(e),
+        })
       }
+    } finally {
+      this.inFlightRepositoryIds.delete(repository.id)
     }
   }
 
-  /**
-   * Trigger a manual GitLab CI/CD job, then re-refresh the repository's
-   * pipeline statuses so the UI picks up the job's new state (typically
-   * moving from `manual` to `pending`/`running`).
-   *
-   * Requires `refresh()` to have already resolved this repository to a
-   * GitLab project (i.e. the repository's dot/statuses must have appeared
-   * at least once) — if it hasn't, this is a no-op.
-   */
-  public async playJob(repository: Repository, jobId: number): Promise<void> {
-    const gitlabToken = await getGitLabToken()
-    if (gitlabToken === null) {
-      return
+  private handleError(repository: Repository, e: unknown) {
+    if (e instanceof GitLabApiError) {
+      if (e.isUnauthorized) {
+        // Every other request will fail the same way. Stop until the user
+        // fixes the token instead of hammering the server.
+        this.authError = describeError(e)
+        log.warn(`[GitLab] token rejected; pausing pipeline status updates`)
+        this.scheduleEmit()
+        return
+      }
+
+      if (e.isNotFound || e.isForbidden) {
+        this.projects.set(repository.id, {
+          project: null,
+          expiresAt: Date.now() + NotFoundBackoffMs,
+        })
+        log.info(
+          `[GitLab] '${repository.name}' isn't accessible with this token (${e.status}); backing off`
+        )
+        return
+      }
     }
 
-    const project = this.projectsByRepositoryId.get(repository.id)
-    if (project === undefined) {
-      return
+    log.warn(
+      `[GitLab] failed to refresh pipeline status for '${
+        repository.name
+      }': ${describeError(e)}`
+    )
+  }
+
+  /**
+   * Resolve a repository to a GitLab project, caching the answer (including
+   * "not GitLab") so we don't spawn git for every repository on every poll.
+   */
+  private async resolveProject(
+    repository: Repository
+  ): Promise<IGitLabProject | null> {
+    const cached = this.projects.get(repository.id)
+    if (cached !== undefined && cached.expiresAt > Date.now()) {
+      return cached.project
+    }
+
+    let project: IGitLabProject | null = null
+    try {
+      const remotes = await getRemotes(repository)
+      const instances = getGitLabInstanceUrls()
+      // Prefer origin, then upstream, then anything else that's GitLab.
+      const ordered = [...remotes].sort((a, b) => {
+        const rank = (name: string) =>
+          name === 'origin' ? 0 : name === 'upstream' ? 1 : 2
+        return rank(a.name) - rank(b.name)
+      })
+
+      for (const remote of ordered) {
+        const parsed = parseGitLabProject(remote.url)
+        const resolved =
+          parsed === null ? null : resolveGitLabInstance(parsed, instances)
+        if (resolved !== null) {
+          project = resolved
+          break
+        }
+      }
+    } catch (e) {
+      log.warn(`[GitLab] couldn't read remotes for '${repository.name}'`, e)
+    }
+
+    this.projects.set(repository.id, {
+      project,
+      expiresAt: Date.now() + ProjectCacheTtlMs,
+    })
+    return project
+  }
+
+  private async getHeadSha(repository: Repository): Promise<string | null> {
+    try {
+      const result = await git(
+        ['rev-parse', '--verify', '--quiet', 'HEAD'],
+        repository.path,
+        'gitlabPipelineHeadSha',
+        { successExitCodes: new Set([0, 1]) }
+      )
+      const sha = result.stdout.trim()
+      return sha.length > 0 ? sha : null
+    } catch {
+      return null
+    }
+  }
+
+  /* ------------------------------- actions -------------------------------- */
+
+  /**
+   * Trigger a manual job, then refresh the repository so the UI picks up its
+   * new state. Throws with a user-presentable message on failure.
+   */
+  public async playJob(repository: Repository, jobId: number): Promise<void> {
+    const token = await getGitLabToken()
+    if (token === null) {
+      throw new Error('No GitLab token is configured.')
+    }
+
+    const project = await this.resolveProject(repository)
+    if (project === null) {
+      throw new Error(`'${repository.name}' isn't a GitLab project.`)
     }
 
     try {
-      await playGitLabJob(
-        project.hostname,
-        project.projectPath,
-        jobId,
-        gitlabToken
-      )
-    } finally {
-      await this.refresh([repository])
+      await playGitLabJob(project, jobId, token)
+    } catch (e) {
+      if (e instanceof GitLabApiError && e.isForbidden) {
+        throw new Error(
+          'GitLab refused to run the job. Running manual jobs needs a token with the "api" scope and Developer access to the project.'
+        )
+      }
+      throw new Error(describeError(e))
     }
+
+    await this.refresh([repository], { force: true })
+    // The poll interval will now be the fast one since a job is active.
+    this.scheduleNextPoll()
+  }
+
+  /* --------------------------- per-commit status -------------------------- */
+
+  private commitKey(repository: Repository, sha: string) {
+    return `${repository.id}:${sha}`
+  }
+
+  private storeCommitResult(key: string, pipeline: IGitLabPipelineInfo | null) {
+    // Map iteration order is insertion order, so deleting and re-inserting
+    // makes this a simple LRU.
+    this.commitCache.delete(key)
+    this.commitCache.set(key, { pipeline, fetchedAt: Date.now() })
+
+    while (this.commitCache.size > MaxCommitCacheEntries) {
+      const oldest = this.commitCache.keys().next().value
+      if (oldest === undefined) {
+        break
+      }
+      this.commitCache.delete(oldest)
+    }
+
+    const listeners = this.commitListeners.get(key)
+    if (listeners !== undefined) {
+      for (const fn of [...listeners]) {
+        fn()
+      }
+    }
+  }
+
+  private isCommitEntryStale(entry: ICommitCacheEntry) {
+    const age = Date.now() - entry.fetchedAt
+    if (entry.pipeline === null) {
+      return age > CommitNoPipelineTtlMs
+    }
+    return isActiveStatus(entry.pipeline.status)
+      ? age > CommitActiveTtlMs
+      : age > CommitFinishedTtlMs
   }
 
   /**
-   * Read the cached GitLab CI/CD job statuses for a single commit, if any
-   * are cached. If none are cached yet, kicks off a background fetch (fire
-   * and forget from the caller's perspective) that will populate the cache
-   * and emit an update once it resolves.
+   * Read the cached pipeline for a single commit. Returns `undefined` when
+   * nothing is cached yet; in that case (or when the cached value is stale)
+   * a background fetch is started, and listeners registered with
+   * `onDidUpdateCommit` are called when it completes.
    */
-  public getOrFetchCommitStatuses(
+  public getOrFetchCommitPipeline(
     repository: Repository,
     sha: string
-  ): ReadonlyArray<IGitLabJobStatus> | undefined {
-    const key = `${repository.id}:${sha}`
-    const cached = this.commitStatuses.get(key)
-    if (cached !== undefined) {
-      return cached
+  ): IGitLabPipelineInfo | null | undefined {
+    const key = this.commitKey(repository, sha)
+    const cached = this.commitCache.get(key)
+
+    if (
+      (cached === undefined || this.isCommitEntryStale(cached)) &&
+      !this.pendingCommitKeys.has(key) &&
+      this.authError === null
+    ) {
+      this.pendingCommitKeys.add(key)
+      this.fetchCommitPipeline(repository, sha, key).finally(() =>
+        this.pendingCommitKeys.delete(key)
+      )
     }
 
-    // Without this guard, every mounted commit row re-calls this method
-    // on every store update and — since a cache miss unconditionally
-    // kicked off a brand new fetch — that meant a fresh git spawn plus
-    // network request *per event, per visible row*, piling up without
-    // bound instead of just waiting for the one fetch already in flight.
-    if (!this.pendingCommitFetchKeys.has(key)) {
-      this.pendingCommitFetchKeys.add(key)
-      this.fetchCommitStatuses(repository, sha, key)
-    }
-
-    return undefined
+    return cached?.pipeline
   }
 
-  private async fetchCommitStatuses(
+  private async fetchCommitPipeline(
     repository: Repository,
     sha: string,
     key: string
   ): Promise<void> {
     try {
-      const gitlabToken = await getGitLabToken()
-      if (gitlabToken === null) {
+      const token = await getGitLabToken()
+      if (token === null) {
         return
       }
 
-      let project = this.projectsByRepositoryId.get(repository.id)
-      if (project === undefined) {
-        const resolved = await this.resolveProject(repository)
-        if (resolved === null) {
-          return
-        }
-
-        project = resolved
-        this.projectsByRepositoryId.set(repository.id, project)
-      }
-
-      const statuses = await fetchLatestCommitStatuses(
-        project.hostname,
-        project.projectPath,
-        sha,
-        gitlabToken
-      )
-
-      if (statuses === null) {
+      const project = await this.resolveProject(repository)
+      if (project === null) {
         return
       }
 
-      this.commitStatuses.set(key, statuses)
-
-      // There's no dedicated emitter for per-commit statuses (see
-      // `IGitLabPipelineStatusMap`'s single payload type), so this reuses
-      // the existing `onDidUpdate` event purely as a generic "something
-      // changed, re-check the cache" signal. This is cheap and infrequent
-      // enough that it's not worth adding a second emitter for.
-      this.emitUpdate(this.statuses)
+      const pipeline = await fetchPipelineForCommit(project, sha, token)
+      this.storeCommitResult(key, pipeline)
     } catch (e) {
-      log.error(
-        `Failed to fetch GitLab commit statuses for '${repository.name}' at ${sha}`,
-        e
-      )
-    } finally {
-      this.pendingCommitFetchKeys.delete(key)
+      this.handleError(repository, e)
     }
   }
 }

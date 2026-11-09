@@ -1,3 +1,4 @@
+import { IRepositoryExportFile } from '../lib/repository-import-export'
 import {
   Repository,
   RepositoryWithGitHubRepository,
@@ -129,6 +130,7 @@ export enum PopupType {
   DeleteWorktreeFailed = 'DeleteWorktreeFailed',
   RepositoryGroupNamePrompt = 'RepositoryGroupNamePrompt',
   RepositoryGroupColorPrompt = 'RepositoryGroupColorPrompt',
+  ImportRepositories = 'ImportRepositories',
 }
 
 interface IBasePopup {
@@ -596,5 +598,12 @@ export type PopupDetail =
       defaultValue?: string
       /** Called with the entered, normalized `#rrggbb` hex color when the user submits */
       onSubmit: (hex: string) => void
+    }
+  | {
+      type: PopupType.ImportRepositories
+      /** The validated contents of the export file */
+      data: IRepositoryExportFile
+      /** The file's name, shown for reference */
+      fileName: string
     }
 export type Popup = IBasePopup & PopupDetail

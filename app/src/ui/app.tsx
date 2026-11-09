@@ -145,6 +145,7 @@ import { MoveToApplicationsFolder } from './move-to-applications-folder'
 import { ChangeRepositoryAlias } from './change-repository-alias/change-repository-alias-dialog'
 import { RepositoryGroupNameDialog } from './repositories-list/repository-group-name-dialog'
 import { RepositoryGroupColorDialog } from './repositories-list/repository-group-color-dialog'
+import { ImportRepositoriesDialog } from './repositories-list/import-repositories-dialog'
 import { ThankYou } from './thank-you'
 import {
   getUserContributions,
@@ -651,7 +652,7 @@ export class App extends React.Component<IAppProps, IAppState> {
     // build (both the periodic background check and the manual "Check for
     // Updates" menu command funnel through this method). Updates are
     // applied manually instead: rebuild and re-run the installer
-    // (`yarn build:prod && yarn package`), which is a normal Squirrel
+    // (`npm run build:prod && npm run package`), which is a normal Squirrel
     // install/upgrade and doesn't go through this code path at all, so
     // disabling this has no effect on that.
     return
@@ -2597,6 +2598,20 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       }
+      case PopupType.ImportRepositories: {
+        return (
+          <ImportRepositoriesDialog
+            key="import-repositories"
+            dispatcher={this.props.dispatcher}
+            data={popup.data}
+            fileName={popup.fileName}
+            existingRepositories={this.state.repositories.filter(
+              (r): r is Repository => r instanceof Repository
+            )}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
       case PopupType.RepositoryGroupColorPrompt: {
         return (
           <RepositoryGroupColorDialog
@@ -3451,6 +3466,9 @@ export class App extends React.Component<IAppProps, IAppState> {
         externalEditorLabel={this.externalEditorLabel}
         shellLabel={useCustomShell ? undefined : selectedShell}
         dispatcher={this.props.dispatcher}
+        accounts={this.state.accounts}
+        onChangeRepositoryAccount={this.changeRepositoryAccount}
+        onShowRepositorySettings={this.showRepositorySettingsFor}
       />
     )
   }
@@ -3464,7 +3482,10 @@ export class App extends React.Component<IAppProps, IAppState> {
    */
   private getSelectedRepositoryTipSha(): string | null {
     const { selectedState } = this.state
-    if (selectedState === null || selectedState.type !== SelectionType.Repository) {
+    if (
+      selectedState === null ||
+      selectedState.type !== SelectionType.Repository
+    ) {
       return null
     }
 

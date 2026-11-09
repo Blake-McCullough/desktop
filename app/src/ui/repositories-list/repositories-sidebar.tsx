@@ -1,10 +1,19 @@
+/* eslint-disable github/a11y-no-title-attribute */
+// Native `title` tooltips are used deliberately on these small, numerous
+// status elements (each also has an aria-label or visible text): the shared
+// TooltippedContent component attaches a ResizeObserver and about a dozen
+// event listeners per element, which adds up quickly across every job of
+// every repository in the sidebar.
 import * as React from 'react'
+import * as Path from 'path'
 import classNames from 'classnames'
 import memoizeOne from 'memoize-one'
+import { Disposable } from 'event-kit'
 
 import { Repository, ILocalRepositoryState } from '../../models/repository'
+import { Account } from '../../models/account'
 import { Repositoryish } from './group-repositories'
-import { RepositoryListItem } from './repository-list-item'
+import { RepositoriesSidebarRow } from './repositories-sidebar-row'
 import { generateRepositoryListContextMenu } from './repository-list-item-context-menu'
 import {
   GroupColorPalette,
@@ -18,12 +27,14 @@ import {
   getSidebarCollapsed,
   getSidebarWidth,
   hexToRgba,
+  onCustomGroupsChanged,
   renameCustomGroup,
   setGroupCollapsed,
   setGroupColor,
   setRepositoryGroup,
   setSidebarCollapsed,
   setSidebarWidth,
+  DefaultSidebarWidth,
   MaxSidebarWidth,
   MinSidebarWidth,
 } from './custom-repository-groups-store'
@@ -32,25 +43,22 @@ import { Dispatcher } from '../dispatcher'
 import { Octicon } from '../octicons'
 import * as octicons from '../octicons/octicons.generated'
 import { Resizable } from '../resizable'
-import { showContextualMenu } from '../../lib/menu-item'
-import { IMenuItem } from '../../lib/menu-item'
+import { showContextualMenu, IMenuItem } from '../../lib/menu-item'
 import { PopupType } from '../../models/popup'
+import { PreferencesTab } from '../../models/preferences'
 import { Button } from '../lib/button'
-import { IMatches } from '../../lib/fuzzy-find'
-import { TooltippedContent } from '../lib/tooltipped-content'
-import { Loading } from '../lib/loading'
-import { getGitLabToken } from '../../lib/gitlab/gitlab-token'
-import {
-  IGitLabJobStatus,
-  getJobStatusColor,
-} from '../../lib/gitlab/gitlab-api'
+import { IGitLabJobStatus } from '../../lib/gitlab/gitlab-api'
 import {
   IGitLabPipelineStatusMap,
   gitLabPipelineStatusStore,
 } from '../../lib/stores/gitlab-pipeline-status-store'
-import { Disposable } from 'event-kit'
-
-const NoMatches: IMatches = { title: [], subtitle: [] }
+import { enableWorktreeSupport } from '../../lib/feature-flag'
+import { showOpenDialog, showSaveDialog } from '../main-process-proxy'
+import {
+  buildRepositoryExport,
+  readRepositoryExport,
+  writeRepositoryExport,
+} from '../../lib/repository-import-export'
 
 interface IRepositoriesSidebarProps {
   readonly selectedRepository: Repositoryish | null
@@ -72,12 +80,18 @@ interface IRepositoriesSidebarProps {
   readonly shellLabel?: string
   readonly dispatcher: Dispatcher
 
+  /** The signed-in accounts, used to offer repository account choices. */
+  readonly accounts: ReadonlyArray<Account>
+  readonly onChangeRepositoryAccount: (
+    repository: Repository,
+    login: string
+  ) => void
+  readonly onShowRepositorySettings: (repository: Repository) => void
+
   /**
-   * The sha of the currently selected repository's tip commit, or `null` if
-   * there isn't one (no repository selected, unborn branch, etc.). Used
-   * purely to detect branch switches/new commits so pipeline statuses for
-   * the selected repository can be refetched immediately instead of
-   * waiting for the periodic poll.
+   * The sha of the currently selected repository's tip commit, or `null`.
+   * Used to refetch the selected repository's pipeline immediately after a
+   * branch switch or new commit.
    */
   readonly selectedRepositoryTipSha: string | null
 }
@@ -88,11 +102,7 @@ interface IGroupSection {
   /** Whether this section is the built-in "Other" (ungrouped) section */
   readonly isOther: boolean
   readonly repositories: ReadonlyArray<Repositoryish>
-  /**
-   * The group's background tint color (a `#rrggbb` hex string), or
-   * `undefined` if it has none set. Always `undefined` for the "Other"
-   * section — it isn't a group the user named, so it isn't colorable.
-   */
+  /** The group's `#rrggbb` color, if any. Never set for "Other". */
   readonly color?: string
 }
 
@@ -104,25 +114,104 @@ interface IRepositoriesSidebarState {
   readonly collapsedGroupIds: ReadonlySet<string>
   readonly draggedRepositoryId: number | null
   readonly dragOverGroupId: string | null
+  readonly filterText: string
 
-  /** Latest known GitLab pipeline job statuses, keyed by repository id. */
+  /** Latest known GitLab pipeline states, keyed by repository id. */
   readonly pipelineStatuses: IGitLabPipelineStatusMap
+  readonly gitLabAuthError: string | null
 
   /** Ids of jobs currently being "played" (manual job run in flight). */
   readonly playingJobIds: ReadonlySet<number>
+
+  /** A short-lived message shown at the bottom of the sidebar. */
+  readonly notice: { readonly text: string; readonly isError: boolean } | null
 }
 
+const getDisplayName = (repo: Repositoryish): string =>
+  (repo instanceof Repository ? repo.alias : null) ?? repo.name
+
+const EmptyPlayingJobIds: ReadonlySet<number> = new Set()
+
 /**
- * A persistent, always-visible list of the user's repositories rendered to
- * the left of the main application content. Unlike `RepositoriesList` (which
- * is rendered inside the toolbar's repository foldout) this component is
- * always mounted, resizable, collapsible, and supports organizing
- * repositories into user-defined groups.
+ * A persistent, always-visible list of the user's repositories to the left
+ * of the main content. Resizable, collapsible, filterable, and supports
+ * organizing repositories into colored groups by drag and drop.
  */
-export class RepositoriesSidebar extends React.Component<
+export class RepositoriesSidebar extends React.PureComponent<
   IRepositoriesSidebarProps,
   IRepositoriesSidebarState
 > {
+  private readonly disposables: Array<Disposable> = []
+  private noticeTimer: number | null = null
+  private filterInputRef = React.createRef<HTMLInputElement>()
+
+  private getSections = memoizeOne(
+    (
+      repositories: ReadonlyArray<Repositoryish>,
+      customGroups: ReadonlyArray<ICustomRepositoryGroup>,
+      repositoryGroups: ReadonlyMap<number, string>,
+      filterText: string
+    ): ReadonlyArray<IGroupSection> => {
+      const groupsById = new Map(customGroups.map(g => [g.id, g]))
+      const byGroup = new Map<string, Repositoryish[]>()
+      const other: Repositoryish[] = []
+      const filter = filterText.trim().toLowerCase()
+
+      for (const repository of repositories) {
+        if (filter.length > 0) {
+          const haystack = `${getDisplayName(repository)}\n${
+            repository.name
+          }\n${repository.path}`.toLowerCase()
+          if (!haystack.includes(filter)) {
+            continue
+          }
+        }
+
+        const groupId = repositoryGroups.get(repository.id)
+        const group =
+          groupId !== undefined ? groupsById.get(groupId) : undefined
+
+        if (group !== undefined) {
+          const repos = byGroup.get(group.id)
+          if (repos === undefined) {
+            byGroup.set(group.id, [repository])
+          } else {
+            repos.push(repository)
+          }
+        } else {
+          other.push(repository)
+        }
+      }
+
+      const sortRepos = (repos: ReadonlyArray<Repositoryish>) =>
+        [...repos].sort((x, y) =>
+          caseInsensitiveCompare(getDisplayName(x), getDisplayName(y))
+        )
+
+      const sections: Array<IGroupSection> = [...customGroups]
+        .sort((x, y) => caseInsensitiveCompare(x.name, y.name))
+        .map(group => ({
+          id: group.id,
+          name: group.name,
+          isOther: false,
+          repositories: sortRepos(byGroup.get(group.id) ?? []),
+          color: group.color,
+        }))
+
+      sections.push({
+        id: OtherGroupId,
+        name: customGroups.length > 0 ? 'Other' : 'All repositories',
+        isOther: true,
+        repositories: sortRepos(other),
+      })
+
+      // While filtering, hide sections with no matches.
+      return filter.length > 0
+        ? sections.filter(s => s.repositories.length > 0)
+        : sections
+    }
+  )
+
   public constructor(props: IRepositoriesSidebarProps) {
     super(props)
 
@@ -134,155 +223,67 @@ export class RepositoriesSidebar extends React.Component<
       collapsedGroupIds: getCollapsedGroupIds(),
       draggedRepositoryId: null,
       dragOverGroupId: null,
+      filterText: '',
       pipelineStatuses: gitLabPipelineStatusStore.getStatuses(),
-      playingJobIds: new Set(),
+      gitLabAuthError: gitLabPipelineStatusStore.getAuthError(),
+      playingJobIds: EmptyPlayingJobIds,
+      notice: null,
     }
   }
 
-  private pipelineStatusesInterval: number | null = null
-  private pipelineStatusStoreSubscription: Disposable | null = null
-
   public componentDidMount() {
-    this.pipelineStatusStoreSubscription = gitLabPipelineStatusStore.onDidUpdate(
-      pipelineStatuses => {
-        this.setState({ pipelineStatuses })
-      }
+    this.disposables.push(
+      gitLabPipelineStatusStore.onDidUpdate(pipelineStatuses => {
+        this.setState({
+          pipelineStatuses,
+          gitLabAuthError: gitLabPipelineStatusStore.getAuthError(),
+        })
+      }),
+      onCustomGroupsChanged(this.refreshFromStore)
     )
 
-    this.startPollingIfTokenConfigured()
+    // The store owns the polling loop (and is a no-op without a token), so
+    // it can pause while the window is hidden and back off on errors.
+    gitLabPipelineStatusStore.startPolling(this.getPollableRepositories)
   }
 
   public componentDidUpdate(prevProps: IRepositoriesSidebarProps) {
     if (
       prevProps.selectedRepositoryTipSha !==
-      this.props.selectedRepositoryTipSha
+        this.props.selectedRepositoryTipSha &&
+      this.props.selectedRepository instanceof Repository
     ) {
-      this.refetchSelectedRepositoryPipelineStatusIfTokenConfigured()
+      gitLabPipelineStatusStore.refresh([this.props.selectedRepository])
     }
   }
 
   public componentWillUnmount() {
-    if (this.pipelineStatusesInterval !== null) {
-      window.clearInterval(this.pipelineStatusesInterval)
-      this.pipelineStatusesInterval = null
+    gitLabPipelineStatusStore.stopPolling()
+    for (const d of this.disposables) {
+      d.dispose()
     }
-
-    if (this.pipelineStatusStoreSubscription !== null) {
-      this.pipelineStatusStoreSubscription.dispose()
-      this.pipelineStatusStoreSubscription = null
+    if (this.noticeTimer !== null) {
+      window.clearTimeout(this.noticeTimer)
     }
   }
 
-  /**
-   * Immediately refresh the selected repository's pipeline statuses,
-   * bypassing the periodic poll — used when the selected repository's tip
-   * commit changes (branch switch, new commit, etc). A no-op when there's
-   * no GitLab token configured (this feature is fully inert without one)
-   * or when the selected repository isn't a real, on-disk `Repository`.
-   */
-  private async refetchSelectedRepositoryPipelineStatusIfTokenConfigured() {
-    const selectedRepository = this.props.selectedRepository
-    if (!(selectedRepository instanceof Repository)) {
-      return
-    }
-
-    const gitlabToken = await getGitLabToken()
-    if (gitlabToken === null) {
-      return
-    }
-
-    gitLabPipelineStatusStore.refresh([selectedRepository])
-  }
-
-  private async startPollingIfTokenConfigured() {
-    const gitlabToken = await getGitLabToken()
-
-    // If there's no token configured, this feature is fully inert: no
-    // network requests, no git commands, nothing scheduled.
-    if (gitlabToken === null) {
-      return
-    }
-
-    this.refreshPipelineStatuses()
-
-    const threeMinutes = 3 * 60 * 1000
-    this.pipelineStatusesInterval = window.setInterval(
-      this.refreshPipelineStatuses,
-      threeMinutes
-    )
-  }
-
-  private refreshPipelineStatuses = () => {
-    const repositories = this.props.repositories.filter(
-      (repository): repository is Repository => repository instanceof Repository
+  private getPollableRepositories = (): ReadonlyArray<Repository> =>
+    this.props.repositories.filter(
+      (r): r is Repository => r instanceof Repository && !r.missing
     )
 
-    gitLabPipelineStatusStore.refresh(repositories)
+  private showNotice(text: string, isError = false) {
+    if (this.noticeTimer !== null) {
+      window.clearTimeout(this.noticeTimer)
+    }
+    this.setState({ notice: { text, isError } })
+    this.noticeTimer = window.setTimeout(() => {
+      this.noticeTimer = null
+      this.setState({ notice: null })
+    }, 5000)
   }
 
-  private getSections = memoizeOne(
-    (
-      repositories: ReadonlyArray<Repositoryish>,
-      customGroups: ReadonlyArray<ICustomRepositoryGroup>,
-      repositoryGroups: ReadonlyMap<number, string>
-    ): ReadonlyArray<IGroupSection> => {
-      const byGroup = new Map<string, Repositoryish[]>()
-      const other: Repositoryish[] = []
-
-      for (const repository of repositories) {
-        const groupId = repositoryGroups.get(repository.id)
-        const group =
-          groupId !== undefined
-            ? customGroups.find(g => g.id === groupId)
-            : undefined
-
-        if (group !== undefined) {
-          const repos = byGroup.get(group.id) ?? []
-          repos.push(repository)
-          byGroup.set(group.id, repos)
-        } else {
-          other.push(repository)
-        }
-      }
-
-      // Sort by alias when the repository has one set, falling back to
-      // its plain name otherwise — matches what's actually displayed in
-      // the list.
-      const getDisplayName = (repo: Repositoryish): string =>
-        (repo instanceof Repository ? repo.alias : null) ?? repo.name
-
-      const sortRepos = (repos: ReadonlyArray<Repositoryish>) =>
-        [...repos].sort((x, y) =>
-          caseInsensitiveCompare(getDisplayName(x), getDisplayName(y))
-        )
-
-      // Custom groups are shown in alphabetical order by group name. The
-      // built-in "Other" section is always last, regardless of its name,
-      // since it's a catch-all rather than a group the user named.
-      const sortedCustomGroups = [...customGroups].sort((x, y) =>
-        caseInsensitiveCompare(x.name, y.name)
-      )
-
-      const sections: Array<IGroupSection> = sortedCustomGroups.map(
-        group => ({
-          id: group.id,
-          name: group.name,
-          isOther: false,
-          repositories: sortRepos(byGroup.get(group.id) ?? []),
-          color: group.color,
-        })
-      )
-
-      sections.push({
-        id: OtherGroupId,
-        name: 'Other',
-        isOther: true,
-        repositories: sortRepos(other),
-      })
-
-      return sections
-    }
-  )
+  /* -------------------------------- sections ------------------------------ */
 
   private refreshFromStore = () => {
     this.setState({
@@ -291,6 +292,8 @@ export class RepositoriesSidebar extends React.Component<
       collapsedGroupIds: getCollapsedGroupIds(),
     })
   }
+
+  /* ----------------------------- sidebar chrome --------------------------- */
 
   private onToggleSidebarCollapsed = () => {
     const collapsed = !this.state.collapsed
@@ -304,14 +307,62 @@ export class RepositoriesSidebar extends React.Component<
   }
 
   private onResetWidth = () => {
-    this.onResize(220)
+    this.onResize(DefaultSidebarWidth)
   }
 
-  private onToggleGroupCollapsed = (groupId: string) => {
-    const collapsed = !this.state.collapsedGroupIds.has(groupId)
-    setGroupCollapsed(groupId, collapsed)
-    this.refreshFromStore()
+  private onFilterChanged = (event: React.ChangeEvent<HTMLInputElement>) => {
+    this.setState({ filterText: event.currentTarget.value })
   }
+
+  private onFilterKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape' && this.state.filterText.length > 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      this.setState({ filterText: '' })
+    } else if (event.key === 'Enter') {
+      // Enter opens the first match.
+      const sections = this.getSections(
+        this.props.repositories,
+        this.state.customGroups,
+        this.state.repositoryGroups,
+        this.state.filterText
+      )
+      const first = sections.find(s => s.repositories.length > 0)
+      if (first !== undefined) {
+        this.onItemClick(first.repositories[0])
+      }
+    }
+  }
+
+  private onClearFilter = () => {
+    this.setState({ filterText: '' })
+    this.filterInputRef.current?.focus()
+  }
+
+  private onToggleGroupCollapsed = (event: React.MouseEvent<HTMLElement>) => {
+    const groupId = event.currentTarget.dataset.groupId
+    if (groupId === undefined) {
+      return
+    }
+    setGroupCollapsed(groupId, !this.state.collapsedGroupIds.has(groupId))
+  }
+
+  private onGroupHeaderKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const groupId = event.currentTarget.dataset.groupId
+    if (groupId !== undefined && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault()
+      setGroupCollapsed(groupId, !this.state.collapsedGroupIds.has(groupId))
+    }
+  }
+
+  private onCollapseAll = (collapse: boolean) => {
+    const ids = [OtherGroupId, ...this.state.customGroups.map(g => g.id)]
+    for (const id of ids) {
+      setGroupCollapsed(id, collapse)
+    }
+  }
+
+  /* --------------------------------- items -------------------------------- */
 
   private onItemClick = (repository: Repositoryish) => {
     this.props.dispatcher.recordRepoClicked(false)
@@ -319,70 +370,66 @@ export class RepositoriesSidebar extends React.Component<
   }
 
   private onMoveToGroup = (repository: Repositoryish, groupId: string) => {
-    setRepositoryGroup(
-      repository.id,
-      groupId === OtherGroupId ? null : groupId
-    )
-    this.refreshFromStore()
+    setRepositoryGroup(repository.id, groupId === OtherGroupId ? null : groupId)
+  }
+
+  private promptForGroupName(
+    title: string,
+    okButtonText: string,
+    onSubmit: (name: string) => void,
+    defaultValue?: string
+  ) {
+    this.props.dispatcher.showPopup({
+      type: PopupType.RepositoryGroupNamePrompt,
+      title,
+      okButtonText,
+      defaultValue,
+      onSubmit,
+    })
   }
 
   private onMoveToNewGroup = (repository: Repositoryish) => {
-    this.props.dispatcher.showPopup({
-      type: PopupType.RepositoryGroupNamePrompt,
-      title: 'New Group',
-      okButtonText: 'Create',
-      onSubmit: name => {
-        const group = createCustomGroup(name)
-        setRepositoryGroup(repository.id, group.id)
-        this.refreshFromStore()
-      },
+    this.promptForGroupName('New Group', 'Create', name => {
+      const group = createCustomGroup(name)
+      setRepositoryGroup(repository.id, group.id)
     })
   }
 
   private onNewGroupClick = () => {
-    this.props.dispatcher.showPopup({
-      type: PopupType.RepositoryGroupNamePrompt,
-      title: 'New Group',
-      okButtonText: 'Create',
-      onSubmit: name => {
-        createCustomGroup(name)
-        this.refreshFromStore()
-      },
-    })
+    this.promptForGroupName('New Group', 'Create', name =>
+      createCustomGroup(name)
+    )
   }
 
   private onRenameGroup = (groupId: string, currentName: string) => {
-    this.props.dispatcher.showPopup({
-      type: PopupType.RepositoryGroupNamePrompt,
-      title: 'Rename Group',
-      okButtonText: 'Rename',
-      defaultValue: currentName,
-      onSubmit: name => {
-        renameCustomGroup(groupId, name)
-        this.refreshFromStore()
-      },
-    })
+    this.promptForGroupName(
+      'Rename Group',
+      'Rename',
+      name => renameCustomGroup(groupId, name),
+      currentName
+    )
   }
 
-  private onDeleteGroup = (groupId: string, name: string) => {
-    if (!window.confirm(`Delete the group "${name}"?`)) {
+  private onDeleteGroup = (section: IGroupSection) => {
+    const count = section.repositories.length
+    const detail =
+      count > 0
+        ? ` Its ${count} ${
+            count === 1 ? 'repository' : 'repositories'
+          } will move to "Other".`
+        : ''
+    if (!window.confirm(`Delete the group "${section.name}"?${detail}`)) {
       return
     }
 
-    deleteCustomGroup(groupId)
-    this.refreshFromStore()
-  }
-
-  private onSetGroupColor = (groupId: string, color: string | null) => {
-    setGroupColor(groupId, color)
-    this.refreshFromStore()
+    deleteCustomGroup(section.id)
   }
 
   private onCustomGroupColorClick = (section: IGroupSection) => {
     this.props.dispatcher.showPopup({
       type: PopupType.RepositoryGroupColorPrompt,
       defaultValue: section.color,
-      onSubmit: hex => this.onSetGroupColor(section.id, hex),
+      onSubmit: hex => setGroupColor(section.id, hex),
     })
   }
 
@@ -396,7 +443,7 @@ export class RepositoriesSidebar extends React.Component<
         label: 'None',
         type: 'checkbox',
         checked: section.color === undefined,
-        action: () => this.onSetGroupColor(section.id, null),
+        action: () => setGroupColor(section.id, null),
       },
       { type: 'separator' },
     ]
@@ -406,15 +453,13 @@ export class RepositoriesSidebar extends React.Component<
         label: option.label,
         type: 'checkbox',
         checked: section.color === option.hex,
-        action: () => this.onSetGroupColor(section.id, option.hex),
+        action: () => setGroupColor(section.id, option.hex),
       })
     }
 
     items.push({ type: 'separator' })
     items.push({
-      label: isCustomColor
-        ? `Custom (${section.color})…`
-        : 'Custom color…',
+      label: isCustomColor ? `Custom (${section.color})…` : 'Custom color…',
       type: 'checkbox',
       checked: isCustomColor,
       action: () => this.onCustomGroupColorClick(section),
@@ -439,10 +484,19 @@ export class RepositoriesSidebar extends React.Component<
       onOpenInExternalEditor: this.props.onOpenInExternalEditor,
       askForConfirmationOnRemoveRepository:
         this.props.askForConfirmationOnRemoveRepository,
+      accounts: this.props.accounts,
+      onChangeRepositoryAccount: this.props.onChangeRepositoryAccount,
+      onShowRepositorySettings: this.props.onShowRepositorySettings,
       externalEditorLabel: this.props.externalEditorLabel,
       onChangeRepositoryAlias: this.onChangeRepositoryAlias,
       onRemoveRepositoryAlias: this.onRemoveRepositoryAlias,
       onViewOnGitHub: this.props.onViewOnGitHub,
+      onCreateWorktree: enableWorktreeSupport()
+        ? this.onCreateWorktree
+        : undefined,
+      onShowWorktrees: enableWorktreeSupport()
+        ? this.onShowWorktrees
+        : undefined,
       repository,
       shellLabel: this.props.shellLabel,
       customGroups: this.state.customGroups,
@@ -454,37 +508,57 @@ export class RepositoriesSidebar extends React.Component<
     showContextualMenu(items)
   }
 
+  private onCreateWorktree = (repository: Repository) => {
+    this.props.dispatcher.showPopup({ type: PopupType.AddWorktree, repository })
+  }
+
+  private onShowWorktrees = (repository: Repository) => {
+    this.props.dispatcher.selectRepository(repository)
+    this.props.dispatcher.showWorktreesFoldout()
+  }
+
   private onGroupHeaderContextMenu = (
-    section: IGroupSection,
     event: React.MouseEvent<HTMLDivElement>
   ) => {
     event.preventDefault()
-
-    if (section.isOther) {
-      const items: IMenuItem[] = [
-        { label: 'New group…', action: this.onNewGroupClick },
-      ]
-      showContextualMenu(items)
+    const section = this.findSection(event.currentTarget.dataset.groupId)
+    if (section === undefined) {
       return
     }
 
-    const items: IMenuItem[] = [
+    const common: IMenuItem[] = [
+      { type: 'separator' },
+      { label: 'New group…', action: this.onNewGroupClick },
+      { label: 'Collapse all groups', action: () => this.onCollapseAll(true) },
+      { label: 'Expand all groups', action: () => this.onCollapseAll(false) },
+    ]
+
+    if (section.isOther) {
+      showContextualMenu(common.slice(1))
+      return
+    }
+
+    showContextualMenu([
       {
         label: 'Rename group…',
         action: () => this.onRenameGroup(section.id, section.name),
       },
-      {
-        label: 'Set color',
-        submenu: this.buildGroupColorMenuItems(section),
-      },
-      {
-        label: 'Delete group…',
-        action: () => this.onDeleteGroup(section.id, section.name),
-      },
-      { type: 'separator' },
-      { label: 'New group…', action: this.onNewGroupClick },
-    ]
-    showContextualMenu(items)
+      { label: 'Set color', submenu: this.buildGroupColorMenuItems(section) },
+      { label: 'Delete group…', action: () => this.onDeleteGroup(section) },
+      ...common,
+    ])
+  }
+
+  private findSection(id: string | undefined) {
+    if (id === undefined) {
+      return undefined
+    }
+    return this.getSections(
+      this.props.repositories,
+      this.state.customGroups,
+      this.state.repositoryGroups,
+      this.state.filterText
+    ).find(s => s.id === id)
   }
 
   private onChangeRepositoryAlias = (repository: Repository) => {
@@ -497,6 +571,8 @@ export class RepositoriesSidebar extends React.Component<
   private onRemoveRepositoryAlias = (repository: Repository) => {
     this.props.dispatcher.changeRepositoryAlias(repository, null)
   }
+
+  /* ------------------------------ drag and drop --------------------------- */
 
   private onDragStart = (
     repository: Repositoryish,
@@ -511,10 +587,7 @@ export class RepositoriesSidebar extends React.Component<
     this.setState({ draggedRepositoryId: null, dragOverGroupId: null })
   }
 
-  private onGroupDragOver = (
-    groupId: string,
-    event: React.DragEvent<HTMLDivElement>
-  ) => {
+  private onGroupDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     if (this.state.draggedRepositoryId === null) {
       return
     }
@@ -522,205 +595,249 @@ export class RepositoriesSidebar extends React.Component<
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
 
+    const groupId = event.currentTarget.dataset.groupId ?? null
     if (this.state.dragOverGroupId !== groupId) {
       this.setState({ dragOverGroupId: groupId })
     }
   }
 
-  private onGroupDragLeave = (groupId: string) => {
-    if (this.state.dragOverGroupId === groupId) {
+  private onGroupDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    // Ignore leaving into a child element of the same group.
+    const related = event.relatedTarget as Node | null
+    if (related !== null && event.currentTarget.contains(related)) {
+      return
+    }
+    if (this.state.dragOverGroupId === event.currentTarget.dataset.groupId) {
       this.setState({ dragOverGroupId: null })
     }
   }
 
-  private onGroupDrop = (
-    groupId: string,
-    event: React.DragEvent<HTMLDivElement>
-  ) => {
+  private onGroupDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
 
     const repositoryId = this.state.draggedRepositoryId
+    const groupId = event.currentTarget.dataset.groupId
 
     this.setState({ draggedRepositoryId: null, dragOverGroupId: null })
 
-    if (repositoryId === null) {
+    if (repositoryId === null || groupId === undefined) {
       return
     }
 
-    setRepositoryGroup(
-      repositoryId,
-      groupId === OtherGroupId ? null : groupId
-    )
-    this.refreshFromStore()
+    setRepositoryGroup(repositoryId, groupId === OtherGroupId ? null : groupId)
   }
 
-  private renderRepositoryRow = (repository: Repositoryish) => {
-    const repoState = this.props.localRepositoryStateLookup.get(
-      repository.id
-    )
-    const selected =
-      this.props.selectedRepository !== null &&
-      this.props.selectedRepository.id === repository.id
+  /* --------------------------------- GitLab ------------------------------- */
 
-    return (
-      <div
-        key={repository.id}
-        className={classNames('repositories-sidebar-item', 'repository-list', {
-          selected,
-        })}
-        draggable={true}
-        onDragStart={event => this.onDragStart(repository, event)}
-        onDragEnd={this.onDragEnd}
-        onClick={() => this.onItemClick(repository)}
-        onContextMenu={event => this.onItemContextMenu(repository, event)}
-      >
-        <RepositoryListItem
-          repository={repository}
-          needsDisambiguation={false}
-          matches={NoMatches}
-          aheadBehind={repoState?.aheadBehind ?? null}
-          changedFilesCount={repoState?.changedFilesCount ?? 0}
-        />
-        {this.renderPipelineStatus(repository)}
-      </div>
-    )
-  }
-
-  private onPlayJobClick = (
-    repository: Repositoryish,
-    job: IGitLabJobStatus,
-    event: React.MouseEvent
-  ) => {
-    event.stopPropagation()
-
-    if (!(repository instanceof Repository)) {
+  private onPlayJob = (repository: Repositoryish, job: IGitLabJobStatus) => {
+    if (
+      !(repository instanceof Repository) ||
+      this.state.playingJobIds.has(job.id)
+    ) {
       return
     }
 
-    if (this.state.playingJobIds.has(job.id)) {
-      return
-    }
-
-    this.setState(prevState => {
-      const playingJobIds = new Set(prevState.playingJobIds)
-      playingJobIds.add(job.id)
-      return { playingJobIds }
-    })
+    this.setState(prev => ({
+      playingJobIds: new Set(prev.playingJobIds).add(job.id),
+    }))
 
     gitLabPipelineStatusStore
       .playJob(repository, job.id)
-      .catch(e => log.error(`Failed to play GitLab job '${job.name}'`, e))
-      .then(() => {
-        this.setState(prevState => {
-          const playingJobIds = new Set(prevState.playingJobIds)
+      .then(
+        () => this.showNotice(`Started "${job.name}"`),
+        e => {
+          log.error(`Failed to play GitLab job '${job.name}'`, e)
+          this.showNotice(e.message, true)
+        }
+      )
+      .finally(() => {
+        this.setState(prev => {
+          const playingJobIds = new Set(prev.playingJobIds)
           playingJobIds.delete(job.id)
           return { playingJobIds }
         })
       })
   }
 
-  private renderPipelineStatus(repository: Repositoryish) {
-    const jobs = this.state.pipelineStatuses.get(repository.id)
+  private onOpenUrl = (url: string) => {
+    this.props.dispatcher.openInBrowser(url)
+  }
 
-    if (jobs === undefined || jobs.length === 0) {
-      // Only show a loading indicator once we know this repository
-      // actually resolves to a GitLab project (i.e. the store has marked
-      // it as fetching) — a plain, non-GitLab repository should never
-      // show a spinner. Once we have cached jobs already, a background
-      // refresh keeps showing the existing dots rather than flickering to
-      // a spinner, so this only applies to the very first fetch.
-      if (
-        repository instanceof Repository &&
-        gitLabPipelineStatusStore.isFetching(repository.id)
-      ) {
-        return (
-          <div className="gitlab-pipeline-status">
-            <TooltippedContent
-              className="gitlab-job-dot-wrapper"
-              tagName="span"
-              tooltip="Fetching GitLab pipeline status…"
-            >
-              <Loading />
-            </TooltippedContent>
-          </div>
-        )
-      }
+  private onOpenGitLabPreferences = () => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.Preferences,
+      initialSelectedTab: PreferencesTab.GitLab,
+    })
+  }
 
-      return null
+  /* ----------------------------- import / export -------------------------- */
+
+  private onExportClick = async () => {
+    const repositories = this.props.repositories.filter(
+      (r): r is Repository => r instanceof Repository
+    )
+
+    const path = await showSaveDialog({
+      title: 'Export repositories',
+      buttonLabel: 'Export',
+      defaultPath: 'github-desktop-repositories.json',
+      filters: [{ name: 'Repository list', extensions: ['json'] }],
+    })
+
+    if (path === null) {
+      return
     }
 
+    try {
+      const data = await buildRepositoryExport(repositories)
+      await writeRepositoryExport(path, data)
+      this.showNotice(
+        `Exported ${data.repositories.length} repositories to ${Path.basename(
+          path
+        )}`
+      )
+    } catch (e) {
+      log.error('Failed to export repositories', e)
+      this.props.dispatcher.postError(
+        new Error(`Couldn't export repositories: ${e.message}`)
+      )
+    }
+  }
+
+  private onImportClick = async () => {
+    const path = await showOpenDialog({
+      title: 'Import repositories',
+      buttonLabel: 'Import',
+      properties: ['openFile'],
+      filters: [{ name: 'Repository list', extensions: ['json'] }],
+    })
+
+    if (path === null) {
+      return
+    }
+
+    try {
+      const data = await readRepositoryExport(path)
+      this.props.dispatcher.showPopup({
+        type: PopupType.ImportRepositories,
+        data,
+        fileName: Path.basename(path),
+      })
+    } catch (e) {
+      this.props.dispatcher.postError(e)
+    }
+  }
+
+  private onAddRepositoryClick = () => {
+    const { dispatcher } = this.props
+    const items: IMenuItem[] = [
+      {
+        label: __DARWIN__ ? 'Clone Repository…' : 'Clone repository…',
+        action: () =>
+          dispatcher.showPopup({
+            type: PopupType.CloneRepository,
+            initialURL: null,
+          }),
+      },
+      {
+        label: __DARWIN__ ? 'Create New Repository…' : 'Create new repository…',
+        action: () =>
+          dispatcher.showPopup({ type: PopupType.CreateRepository }),
+      },
+      {
+        label: __DARWIN__
+          ? 'Add Existing Repository…'
+          : 'Add existing repository…',
+        action: () => dispatcher.showPopup({ type: PopupType.AddRepository }),
+      },
+      { type: 'separator' },
+      { label: 'New group…', action: this.onNewGroupClick },
+      { type: 'separator' },
+      {
+        label: __DARWIN__ ? 'Import Repositories…' : 'Import repositories…',
+        action: this.onImportClick,
+      },
+      {
+        label: __DARWIN__ ? 'Export Repositories…' : 'Export repositories…',
+        action: this.onExportClick,
+        enabled: this.props.repositories.length > 0,
+      },
+    ]
+
+    showContextualMenu(items)
+  }
+
+  /* -------------------------------- rendering ----------------------------- */
+
+  private renderRepositoryRow = (repository: Repositoryish) => {
+    const repoState = this.props.localRepositoryStateLookup.get(repository.id)
+    const { selectedRepository } = this.props
+
     return (
-      <div className="gitlab-pipeline-status">
-        {jobs.map((job, index) => (
-          <TooltippedContent
-            key={`${job.name}-${index}`}
-            className="gitlab-job-dot-wrapper"
-            tagName="span"
-            tooltip={
-              job.status === 'manual' ? `Run "${job.name}"` : job.name
-            }
-          >
-            {job.status === 'manual' ? (
-              <button
-                type="button"
-                className={classNames('gitlab-job-play-button', {
-                  playing: this.state.playingJobIds.has(job.id),
-                })}
-                disabled={this.state.playingJobIds.has(job.id)}
-                onClick={event => this.onPlayJobClick(repository, job, event)}
-                aria-label={`Run "${job.name}"`}
-              >
-                <Octicon symbol={octicons.play} />
-              </button>
-            ) : (
-              <span
-                className={`gitlab-job-dot gitlab-job-dot-${getJobStatusColor(
-                  job.status
-                )}`}
-              />
-            )}
-          </TooltippedContent>
-        ))}
-      </div>
+      <RepositoriesSidebarRow
+        key={repository.id}
+        repository={repository}
+        selected={
+          selectedRepository !== null && selectedRepository.id === repository.id
+        }
+        aheadBehind={repoState?.aheadBehind ?? null}
+        changedFilesCount={repoState?.changedFilesCount ?? 0}
+        pipeline={this.state.pipelineStatuses.get(repository.id)}
+        playingJobIds={this.state.playingJobIds}
+        isDragging={this.state.draggedRepositoryId === repository.id}
+        onClick={this.onItemClick}
+        onContextMenu={this.onItemContextMenu}
+        onDragStart={this.onDragStart}
+        onDragEnd={this.onDragEnd}
+        onPlayJob={this.onPlayJob}
+        onOpenUrl={this.onOpenUrl}
+      />
     )
   }
 
   private renderGroupSection = (section: IGroupSection) => {
-    const isCollapsed = this.state.collapsedGroupIds.has(section.id)
+    const isFiltering = this.state.filterText.trim().length > 0
+    const isCollapsed =
+      !isFiltering && this.state.collapsedGroupIds.has(section.id)
     const isDragOver = this.state.dragOverGroupId === section.id
 
-    // A light tint of the group's chosen color behind its header and its
-    // repositories, so groups are easier to tell apart at a glance. Drawn
-    // as a low-alpha background rather than a solid color so it still
-    // reads clearly against the sidebar's normal background in both
-    // light and dark themes.
     const style: React.CSSProperties | undefined =
       section.color !== undefined
-        ? { backgroundColor: hexToRgba(section.color, 0.15) }
+        ? ({
+            '--group-color': section.color,
+            '--group-tint': hexToRgba(section.color, 0.08),
+          } as React.CSSProperties)
         : undefined
 
     return (
       <div
         key={section.id}
+        data-group-id={section.id}
         className={classNames('repositories-sidebar-group', {
           'drag-over': isDragOver,
+          colored: section.color !== undefined,
+          collapsed: isCollapsed,
         })}
         style={style}
-        onDragOver={event => this.onGroupDragOver(section.id, event)}
-        onDragLeave={() => this.onGroupDragLeave(section.id)}
-        onDrop={event => this.onGroupDrop(section.id, event)}
+        onDragOver={this.onGroupDragOver}
+        onDragLeave={this.onGroupDragLeave}
+        onDrop={this.onGroupDrop}
       >
         <div
           className="repositories-sidebar-group-header"
-          onClick={() => this.onToggleGroupCollapsed(section.id)}
-          onContextMenu={event =>
-            this.onGroupHeaderContextMenu(section, event)
-          }
+          data-group-id={section.id}
+          role="button"
+          tabIndex={0}
+          aria-expanded={!isCollapsed}
+          onClick={this.onToggleGroupCollapsed}
+          onKeyDown={this.onGroupHeaderKeyDown}
+          onContextMenu={this.onGroupHeaderContextMenu}
         >
           <Octicon
             symbol={isCollapsed ? octicons.chevronRight : octicons.chevronDown}
             className="collapse-icon"
           />
+          {section.color !== undefined && <span className="group-swatch" />}
           <span className="name">{section.name}</span>
           <span className="count">{section.repositories.length}</span>
         </div>
@@ -728,7 +845,7 @@ export class RepositoriesSidebar extends React.Component<
         {!isCollapsed && (
           <div className="repositories-sidebar-group-items">
             {section.repositories.length === 0 ? (
-              <div className="no-repositories">No repositories</div>
+              <div className="no-repositories">Drag repositories here</div>
             ) : (
               section.repositories.map(this.renderRepositoryRow)
             )}
@@ -738,69 +855,104 @@ export class RepositoriesSidebar extends React.Component<
     )
   }
 
-  private onAddRepositoryClick = () => {
-    const items: IMenuItem[] = [
-      {
-        label: __DARWIN__ ? 'Clone Repository…' : 'Clone repository…',
-        action: () =>
-          this.props.dispatcher.showPopup({
-            type: PopupType.CloneRepository,
-            initialURL: null,
-          }),
-      },
-      {
-        label: __DARWIN__
-          ? 'Create New Repository…'
-          : 'Create new repository…',
-        action: () =>
-          this.props.dispatcher.showPopup({
-            type: PopupType.CreateRepository,
-          }),
-      },
-      {
-        label: __DARWIN__
-          ? 'Add Existing Repository…'
-          : 'Add existing repository…',
-        action: () =>
-          this.props.dispatcher.showPopup({ type: PopupType.AddRepository }),
-      },
-      { type: 'separator' },
-      { label: 'New group…', action: this.onNewGroupClick },
-    ]
+  private renderGitLabAuthError() {
+    if (this.state.gitLabAuthError === null) {
+      return null
+    }
 
-    showContextualMenu(items)
+    return (
+      <button
+        type="button"
+        className="repositories-sidebar-warning"
+        onClick={this.onOpenGitLabPreferences}
+        title={this.state.gitLabAuthError}
+      >
+        <Octicon symbol={octicons.alert} />
+        <span>GitLab token rejected — fix in Preferences</span>
+      </button>
+    )
   }
 
   private renderExpandedContent() {
+    const { filterText } = this.state
     const sections = this.getSections(
       this.props.repositories,
       this.state.customGroups,
-      this.state.repositoryGroups
+      this.state.repositoryGroups,
+      filterText
     )
 
     return (
       <div className="repositories-sidebar-inner">
         <div className="repositories-sidebar-header">
-          <span className="title">Repositories</span>
+          <span className="title">
+            Repositories
+            <span className="total">{this.props.repositories.length}</span>
+          </span>
           <Button
-            className="add-repository-button"
+            className="sidebar-icon-button add-repository-button"
             onClick={this.onAddRepositoryClick}
-            tooltip="Add repository or group"
+            tooltip="Add, import or export repositories"
+            ariaLabel="Add, import or export repositories"
           >
             <Octicon symbol={octicons.plus} />
           </Button>
-          <button
-            type="button"
-            className="collapse-sidebar-button"
+          <Button
+            className="sidebar-icon-button collapse-sidebar-button"
             onClick={this.onToggleSidebarCollapsed}
-            aria-label="Collapse repositories sidebar"
+            tooltip="Hide sidebar"
+            ariaLabel="Collapse repositories sidebar"
           >
-            <Octicon symbol={octicons.sidebarCollapse} />
-          </button>
+            <Octicon symbol={octicons.sidebarExpand} />
+          </Button>
         </div>
+
+        <div className="repositories-sidebar-filter">
+          <Octicon symbol={octicons.search} className="search-icon" />
+          <input
+            ref={this.filterInputRef}
+            type="search"
+            placeholder="Filter"
+            aria-label="Filter repositories"
+            value={filterText}
+            onChange={this.onFilterChanged}
+            onKeyDown={this.onFilterKeyDown}
+            spellCheck={false}
+          />
+          {filterText.length > 0 && (
+            <button
+              type="button"
+              className="clear-filter"
+              onClick={this.onClearFilter}
+              aria-label="Clear filter"
+            >
+              <Octicon symbol={octicons.x} />
+            </button>
+          )}
+        </div>
+
+        {this.renderGitLabAuthError()}
+
         <div className="repositories-sidebar-groups">
-          {sections.map(this.renderGroupSection)}
+          {sections.length === 0 ? (
+            <div className="repositories-sidebar-empty">
+              No repositories match “{filterText}”
+            </div>
+          ) : (
+            sections.map(this.renderGroupSection)
+          )}
         </div>
+
+        {this.state.notice !== null && (
+          <div
+            className={classNames('repositories-sidebar-notice', {
+              error: this.state.notice.isError,
+            })}
+            role="status"
+          >
+            {this.state.notice.text}
+          </div>
+        )}
       </div>
     )
   }
@@ -814,6 +966,7 @@ export class RepositoriesSidebar extends React.Component<
             className="expand-sidebar-button"
             onClick={this.onToggleSidebarCollapsed}
             aria-label="Expand repositories sidebar"
+            title="Show repositories sidebar"
           >
             <Octicon symbol={octicons.sidebarCollapse} />
           </button>

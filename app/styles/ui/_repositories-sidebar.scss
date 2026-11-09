@@ -1,45 +1,83 @@
 @import '../mixins';
 
+// Shared GitLab status dot colors, used by the sidebar and the history list.
+@mixin gitlab-job-dot-colors {
+  &.gitlab-job-dot-green {
+    background-color: var(--status-success-color);
+  }
+
+  &.gitlab-job-dot-red {
+    background-color: var(--status-error-color);
+  }
+
+  &.gitlab-job-dot-yellow {
+    background-color: var(--status-pending-color);
+  }
+
+  &.gitlab-job-dot-blue {
+    background-color: var(--focus-color);
+  }
+
+  &.gitlab-job-dot-grey {
+    background-color: var(--text-secondary-color);
+    opacity: 0.6;
+  }
+}
+
+@keyframes gitlab-job-running {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(9, 105, 218, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(9, 105, 218, 0);
+  }
+}
+
+@keyframes repositories-sidebar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .repositories-sidebar {
   height: 100%;
   flex-shrink: 0;
   border-right: var(--base-border);
   background: var(--background-color);
+  // Paint containment: a change inside the sidebar never forces the rest
+  // of the window to repaint, and vice versa.
+  contain: layout paint;
 
   &.collapsed {
-    width: 28px;
+    width: 32px;
     display: flex;
     align-items: flex-start;
     justify-content: center;
     padding-top: var(--spacing);
   }
 
-  .expand-sidebar-button,
-  .collapse-sidebar-button {
+  .expand-sidebar-button {
     background: none;
     border: none;
+    border-radius: var(--border-radius);
     cursor: pointer;
     color: var(--text-secondary-color);
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: var(--spacing-half);
+    width: 24px;
+    height: 24px;
+    padding: 0;
 
     &:hover {
       color: var(--text-color);
+      background: var(--box-alt-background-color);
     }
   }
 
-  /**
-   * `Resizable` renders its own wrapping `.resizable-component` div (see
-   * `_resizable.scss`), which is `display: flex; flex-direction: column`
-   * but has no height of its own — it just grows to fit its content.
-   * Without an explicit height here, `.repositories-sidebar-inner`'s
-   * `height: 100%` below has nothing bounded to resolve against, so the
-   * whole sidebar just grows taller than its container instead of
-   * scrolling internally. Give it an explicit, shrinkable height so the
-   * `overflow-y: auto` further down actually has a box to scroll within.
-   */
+  // `Resizable` renders its own wrapper with no height of its own; give it
+  // a bounded height so the groups list can scroll internally.
   #repositories-sidebar-resizable {
     height: 100%;
     min-height: 0;
@@ -53,31 +91,179 @@
     min-width: 0;
   }
 
+  /* --------------------------------------------------------------- header */
+
   .repositories-sidebar-header {
     display: flex;
     align-items: center;
-    padding: var(--spacing);
+    gap: 2px;
+    padding: var(--spacing) var(--spacing-half) var(--spacing-half) var(--spacing);
     flex-shrink: 0;
 
     .title {
       font-weight: var(--font-weight-semibold);
       flex: 1 1 auto;
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-half);
+      min-width: 0;
       @include ellipsis;
+
+      .total {
+        font-weight: normal;
+        font-size: var(--font-size-sm);
+        color: var(--text-secondary-color);
+        background: var(--box-alt-background-color);
+        border-radius: 10px;
+        padding: 0 6px;
+        line-height: 16px;
+      }
     }
 
-    .add-repository-button {
-      margin-right: var(--spacing-half);
+    .sidebar-icon-button.button-component {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      min-width: 0;
+      padding: 0;
+      border: none;
+      border-radius: var(--border-radius);
+      background: transparent;
+      color: var(--text-secondary-color);
+      box-shadow: none;
+
+      &:hover,
+      &:focus-visible {
+        color: var(--text-color);
+        background: var(--box-alt-background-color);
+      }
     }
   }
+
+  /* --------------------------------------------------------------- filter */
+
+  .repositories-sidebar-filter {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin: 0 var(--spacing) var(--spacing-half);
+    flex-shrink: 0;
+
+    .search-icon {
+      position: absolute;
+      left: 7px;
+      width: 12px;
+      color: var(--text-secondary-color);
+      pointer-events: none;
+    }
+
+    input {
+      width: 100%;
+      height: 26px;
+      padding: 0 24px 0 24px;
+      border: var(--base-border);
+      border-radius: var(--border-radius);
+      background: var(--box-alt-background-color);
+      color: var(--text-color);
+      font-size: var(--font-size);
+
+      &::-webkit-search-cancel-button {
+        display: none;
+      }
+
+      &:focus {
+        outline: none;
+        background: var(--background-color);
+        border-color: var(--focus-color);
+        box-shadow: 0 0 0 3px var(--text-field-focus-shadow-color);
+      }
+    }
+
+    .clear-filter {
+      position: absolute;
+      right: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--text-secondary-color);
+      cursor: pointer;
+
+      &:hover {
+        color: var(--text-color);
+        background: var(--box-border-color);
+      }
+
+      svg {
+        width: 12px;
+      }
+    }
+  }
+
+  .repositories-sidebar-warning {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-half);
+    margin: 0 var(--spacing) var(--spacing-half);
+    padding: var(--spacing-half) var(--spacing);
+    border: 1px solid var(--status-pending-color);
+    border-radius: var(--border-radius);
+    background: transparent;
+    color: var(--text-color);
+    font-size: var(--font-size-sm);
+    text-align: left;
+    cursor: pointer;
+    flex-shrink: 0;
+
+    svg {
+      color: var(--status-pending-color);
+      flex-shrink: 0;
+    }
+
+    &:hover {
+      background: var(--box-alt-background-color);
+    }
+  }
+
+  /* --------------------------------------------------------------- groups */
 
   .repositories-sidebar-groups {
     flex: 1 1 auto;
     overflow-y: auto;
+    overflow-x: hidden;
     min-height: 0;
+    padding-bottom: var(--spacing);
+    overscroll-behavior: contain;
+  }
+
+  .repositories-sidebar-empty {
+    padding: var(--spacing-double) var(--spacing);
+    color: var(--text-secondary-color);
+    text-align: center;
+    font-size: var(--font-size-sm);
   }
 
   .repositories-sidebar-group {
+    margin: 2px var(--spacing-half);
+    border-radius: var(--border-radius);
+    border: 1px solid transparent;
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+
+    &.colored {
+      background: var(--group-tint);
+      box-shadow: inset 3px 0 0 var(--group-color);
+    }
+
     &.drag-over {
+      border-color: var(--focus-color);
+      border-style: dashed;
       background: var(--box-selected-background-color);
     }
   }
@@ -85,9 +271,14 @@
   .repositories-sidebar-group-header {
     display: flex;
     align-items: center;
-    padding: var(--spacing-half) var(--spacing);
+    height: 26px;
+    padding: 0 var(--spacing-half) 0 var(--spacing);
+    border-radius: var(--border-radius);
     cursor: pointer;
+    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--text-secondary-color);
     user-select: none;
 
@@ -95,6 +286,16 @@
       margin-right: var(--spacing-half);
       flex-shrink: 0;
       width: 12px;
+      transition: transform 0.12s ease;
+    }
+
+    .group-swatch {
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      margin-right: var(--spacing-half);
+      background: var(--group-color);
+      flex-shrink: 0;
     }
 
     .name {
@@ -103,93 +304,183 @@
     }
 
     .count {
-      color: var(--text-secondary-color);
-      font-size: var(--font-size-xs);
+      font-weight: normal;
+      letter-spacing: 0;
       margin-left: var(--spacing-half);
+      min-width: 18px;
+      text-align: center;
+      border-radius: 9px;
+      line-height: 16px;
+      padding: 0 4px;
+      background: var(--box-alt-background-color);
     }
 
     &:hover {
+      color: var(--text-color);
       background: var(--box-alt-background-color);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--focus-color);
+      outline-offset: -2px;
     }
   }
 
   .repositories-sidebar-group-items {
+    padding-bottom: 2px;
+
     .no-repositories {
-      padding: var(--spacing-half) var(--spacing) var(--spacing-half)
-        calc(var(--spacing) + 20px);
+      padding: var(--spacing-half) var(--spacing) var(--spacing-half) calc(var(--spacing) + 18px);
       color: var(--text-secondary-color);
-      font-size: var(--font-size-xs);
+      font-size: var(--font-size-sm);
+      font-style: italic;
     }
   }
 
+  /* ---------------------------------------------------------------- items */
+
   .repositories-sidebar-item {
-    padding: var(--spacing-half) var(--spacing) var(--spacing-half)
-      calc(var(--spacing) + 20px);
+    display: flex;
+    align-items: center;
+    min-height: 28px;
+    margin: 1px 0;
+    padding: 0 var(--spacing-half) 0 calc(var(--spacing) + 18px);
+    border-radius: var(--border-radius);
     cursor: pointer;
+    // Long lists: skip layout/paint for rows that are off screen.
+    content-visibility: auto;
+    contain-intrinsic-size: auto 28px;
 
     &:hover {
       background: var(--box-alt-background-color);
     }
 
+    &:focus-visible {
+      outline: 2px solid var(--focus-color);
+      outline-offset: -2px;
+    }
+
     &.selected {
-      background: var(--box-selected-background-color);
-      color: var(--box-selected-text-color);
+      background: var(--box-selected-active-background-color);
+      color: var(--box-selected-active-text-color);
+
+      .repository-list-item,
+      .repository-list-item .name,
+      .repository-list-item .octicon {
+        color: var(--box-selected-active-text-color);
+      }
+
+      .gitlab-job-dot {
+        border-color: var(--box-selected-active-text-color);
+      }
+
+      .gitlab-job-play-button,
+      .gitlab-job-more,
+      .gitlab-pipeline-error {
+        color: var(--box-selected-active-text-color);
+      }
+    }
+
+    &.dragging {
+      opacity: 0.5;
     }
 
     .repository-list-item {
+      flex: 1 1 auto;
+      min-width: 0;
       padding: 0;
     }
   }
 
-  // Small colored dots representing the latest GitLab CI/CD pipeline job
-  // statuses for a repository, shown next to its ahead/behind and
-  // uncommitted-changes indicators. Reuses the existing --status-*-color
-  // variables used elsewhere for PR/check status colors.
+  /* --------------------------------------------------------------- notice */
+
+  .repositories-sidebar-notice {
+    flex-shrink: 0;
+    margin: var(--spacing-half) var(--spacing) var(--spacing);
+    padding: var(--spacing-half) var(--spacing);
+    border-radius: var(--border-radius);
+    background: var(--box-alt-background-color);
+    border: var(--base-border);
+    font-size: var(--font-size-sm);
+    @include ellipsis;
+
+    &.error {
+      border-color: var(--status-error-color);
+      color: var(--status-error-color);
+    }
+  }
+
+  /* ------------------------------------------------------- gitlab status */
+
   .gitlab-pipeline-status {
     display: flex;
     align-items: center;
     gap: 3px;
     margin-left: var(--spacing-half);
     flex-shrink: 0;
-  }
 
-  .gitlab-job-dot-wrapper {
-    display: flex;
+    &.stale {
+      opacity: 0.55;
+    }
   }
 
   .gitlab-job-dot {
     display: inline-block;
     box-sizing: border-box;
-    width: 7px;
-    height: 7px;
+    width: 8px;
+    height: 8px;
+    padding: 0;
+    margin: 0;
     border-radius: 50%;
-    // A group's background tint (see `.repositories-sidebar-group` above)
-    // sits directly behind these dots, so a fixed black border keeps them
-    // readable no matter what color tint (or none) is behind them. Kept
-    // black in both themes deliberately, rather than a theme variable —
-    // the point is a border that reliably contrasts against a light color
-    // wash, not one that blends into a dark background.
-    border: 1px solid #000;
+    border: 1px solid rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+    @include gitlab-job-dot-colors;
 
-    &.gitlab-job-dot-green {
-      background-color: var(--status-success-color);
+    &:hover {
+      transform: scale(1.35);
     }
 
-    &.gitlab-job-dot-red {
-      background-color: var(--status-error-color);
-    }
-
-    &.gitlab-job-dot-yellow {
-      background-color: var(--status-pending-color);
-    }
-
-    &.gitlab-job-dot-grey {
-      background-color: var(--text-secondary-color);
+    &.running {
+      animation: gitlab-job-running 1.6s ease-in-out infinite;
     }
   }
 
-  // Clickable "run" button shown in place of a plain dot for manual GitLab
-  // CI/CD jobs, so the user can trigger them without leaving the sidebar.
+  .gitlab-job-more {
+    padding: 0 3px;
+    margin: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-xs);
+    line-height: 12px;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--box-border-color);
+      color: var(--text-color);
+    }
+  }
+
+  .gitlab-pipeline-error {
+    display: flex;
+    color: var(--status-pending-color);
+
+    svg {
+      width: 11px;
+    }
+  }
+
+  .gitlab-pipeline-loading {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid var(--text-secondary-color);
+    border-right-color: transparent;
+    animation: repositories-sidebar-spin 0.8s linear infinite;
+  }
+
+  // "Run" button shown instead of a dot for manual jobs.
   .gitlab-job-play-button {
     display: flex;
     align-items: center;
@@ -198,7 +489,7 @@
     height: 14px;
     padding: 0;
     margin: 0;
-    border: none;
+    border: 1px solid var(--box-border-color);
     border-radius: 50%;
     background: transparent;
     color: var(--text-secondary-color);
@@ -206,6 +497,7 @@
 
     &:hover {
       color: var(--text-color);
+      border-color: var(--text-secondary-color);
       background: var(--box-alt-background-color);
     }
 
@@ -222,10 +514,25 @@
   }
 }
 
-// The custom hex-color entry dialog (repository-group-color-dialog.tsx),
-// deliberately styled outside the `.repositories-sidebar` block above
-// since the dialog itself renders at the top level of the app, not inside
-// the sidebar.
+// History list: a single aggregated pipeline dot per commit.
+.commit-list .gitlab-pipeline-indicator,
+.gitlab-pipeline-indicator {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: var(--spacing-half);
+
+  .gitlab-job-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    @include gitlab-job-dot-colors;
+  }
+}
+
+// The custom hex-color entry dialog renders at the top level of the app,
+// not inside the sidebar.
 #repository-group-color {
   .repository-group-color-swatch {
     display: inline-block;
@@ -236,5 +543,173 @@
     border-radius: 3px;
     flex-shrink: 0;
     align-self: center;
+  }
+}
+
+/* -------------------------------------------------------- import dialog */
+
+#import-repositories {
+  width: 640px;
+  max-width: 90vw;
+
+  .import-source {
+    margin-top: 0;
+  }
+
+  .import-root {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--spacing);
+
+    .text-box-component {
+      flex: 1 1 auto;
+    }
+  }
+
+  .import-hint {
+    margin: var(--spacing-half) 0 var(--spacing);
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+
+    code {
+      word-break: break-all;
+    }
+  }
+
+  .import-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing);
+    padding: var(--spacing-half) 0;
+    border-bottom: var(--base-border);
+
+    .import-summary {
+      margin: 0;
+      color: var(--text-secondary-color);
+      font-size: var(--font-size-sm);
+    }
+  }
+
+  .import-planning {
+    padding: var(--spacing-double);
+    text-align: center;
+    color: var(--text-secondary-color);
+  }
+
+  .import-repository-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 320px;
+    overflow-y: auto;
+
+    &.stale {
+      opacity: 0.5;
+    }
+  }
+
+  .import-repository-entry {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing);
+    padding: var(--spacing-half) 0;
+    border-bottom: var(--base-border);
+
+    &.unavailable {
+      opacity: 0.6;
+    }
+
+    .checkbox-component {
+      flex-shrink: 0;
+    }
+
+    .details {
+      flex: 1 1 auto;
+      min-width: 0;
+
+      .title {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-half);
+      }
+
+      .group-swatch {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        flex-shrink: 0;
+      }
+
+      .name {
+        font-weight: var(--font-weight-semibold);
+        @include ellipsis;
+      }
+
+      .group-name {
+        font-size: var(--font-size-xs);
+        color: var(--text-secondary-color);
+        background: var(--box-alt-background-color);
+        border-radius: 8px;
+        padding: 0 6px;
+        white-space: nowrap;
+      }
+
+      .path {
+        font-size: var(--font-size-sm);
+        color: var(--text-secondary-color);
+        @include ellipsis;
+      }
+    }
+
+    .action {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: var(--font-size-sm);
+      color: var(--text-secondary-color);
+      white-space: nowrap;
+
+      &.action-clone {
+        color: var(--focus-color);
+      }
+
+      &.action-add {
+        color: var(--status-success-color);
+      }
+
+      &.action-done {
+        color: var(--status-success-color);
+      }
+
+      &.action-failed,
+      &.action-unavailable {
+        color: var(--status-error-color);
+      }
+
+      .spin {
+        animation: repositories-sidebar-spin 1s linear infinite;
+      }
+    }
+  }
+}
+
+/* ----------------------------------------------- preferences: GitLab tab */
+
+.gitlab-token-test {
+  margin: var(--spacing-half) 0;
+  padding: var(--spacing-half) var(--spacing);
+  border-radius: var(--border-radius);
+  border: var(--base-border);
+  font-size: var(--font-size-sm);
+  word-break: break-word;
+
+  &.ok {
+    border-color: var(--status-success-color);
+  }
+
+  &.error {
+    border-color: var(--status-error-color);
   }
 }

@@ -1,6 +1,21 @@
 
 # This is my custom version with grouping, colours and gitlab ci/cd intergration
 
+Custom additions on top of GitHub Desktop:
+
+- **Repositories sidebar** — always visible, resizable, filterable, with
+  colored groups (drag and drop to organize).
+- **Import / export** — the sidebar's `+` menu can export every repository
+  (location, remotes, alias, group and group color) to a JSON file and import
+  it again, remapping the base folder and cloning anything that's missing.
+- **GitLab CI/CD** — pipeline status per repository and per commit. Configure
+  a token (and any self-hosted instances) in Preferences → GitLab.
+- **Crash recovery** — the window reloads itself if the renderer crashes
+  instead of going blank.
+
+Build: `npm ci`, then `npm run build:prod && npm run package` (Node
+version in `.node-version`).
+
 # [GitHub Desktop](https://desktop.github.com)
 
 [GitHub Desktop](https://desktop.github.com/) is an open-source [Electron](https://www.electronjs.org/)-based

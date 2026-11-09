@@ -44,6 +44,11 @@ export class AppWindow {
   // See https://github.com/desktop/desktop/pull/11162
   private shouldMaximizeOnShow = false
 
+  /** Timestamps of recent renderer crashes, used to detect crash loops. */
+  private recentRendererCrashes: Array<number> = []
+  private unresponsiveTimer: ReturnType<typeof setTimeout> | null = null
+  private isShowingUnresponsiveDialog = false
+
   public constructor() {
     const savedWindowState = windowStateKeeper({
       defaultWidth: this.minWidth,
@@ -192,6 +197,8 @@ export class AppWindow {
       this.window.show()
     })
 
+    this.installRendererRecovery()
+
     // TODO: This should be scoped by the window.
     ipcMain.once('renderer-ready', (_, readyTime) => {
       this._rendererReadyTime = readyTime
@@ -226,6 +233,136 @@ export class AppWindow {
     })
 
     this.setupAutoUpdater()
+  }
+
+  /**
+   * Recover from the renderer (or GPU) process dying or hanging.
+   *
+   * Without this, a renderer crash (out of memory after running for a long
+   * time, a GPU process crash after the machine sleeps, a driver reset, …)
+   * leaves a blank white window behind. On Windows the window is frameless
+   * and its title bar is drawn by the renderer, so there isn't even a close
+   * button — the only way out was to kill the process.
+   */
+  private installRendererRecovery() {
+    const webContents = this.window.webContents
+
+    webContents.on('render-process-gone', (_event, details) => {
+      if (details.reason === 'clean-exit' || this.window.isDestroyed()) {
+        return
+      }
+
+      log.error(
+        `[main] renderer process gone (reason: ${details.reason}, exit code: ${details.exitCode})`
+      )
+      this.recoverRenderer(`the window stopped (${details.reason})`)
+    })
+
+    webContents.on('unresponsive', () => {
+      log.warn('[main] renderer became unresponsive')
+      if (this.unresponsiveTimer !== null) {
+        return
+      }
+
+      // Give it a little while to recover on its own (e.g. a big diff)
+      // before bothering the user.
+      this.unresponsiveTimer = setTimeout(() => {
+        this.unresponsiveTimer = null
+        this.showUnresponsiveDialog()
+      }, 15 * 1000)
+    })
+
+    webContents.on('responsive', () => {
+      if (this.unresponsiveTimer !== null) {
+        clearTimeout(this.unresponsiveTimer)
+        this.unresponsiveTimer = null
+      }
+    })
+
+    // A GPU process crash (common after sleep/resume or display changes on
+    // Windows) can leave the compositor showing nothing but the background
+    // color even though the renderer itself is fine. Repainting fixes that.
+    app.on('child-process-gone', (_event, details) => {
+      if (details.type !== 'GPU' || details.reason === 'clean-exit') {
+        return
+      }
+
+      log.error(`[main] GPU process gone (reason: ${details.reason})`)
+      if (!this.window.isDestroyed()) {
+        setTimeout(() => {
+          if (!this.window.isDestroyed()) {
+            this.window.webContents.invalidate()
+          }
+        }, 1000)
+      }
+    })
+  }
+
+  private recoverRenderer(reason: string) {
+    const now = Date.now()
+    const tenMinutes = 10 * 60 * 1000
+    this.recentRendererCrashes = this.recentRendererCrashes.filter(
+      t => now - t < tenMinutes
+    )
+    this.recentRendererCrashes.push(now)
+
+    // Reload automatically a couple of times; if it keeps happening, ask
+    // rather than looping forever.
+    if (this.recentRendererCrashes.length <= 2) {
+      log.info(`[main] reloading window after ${reason}`)
+      this.window.webContents.reload()
+      return
+    }
+
+    dialog
+      .showMessageBox(this.window, {
+        type: 'error',
+        title: 'GitHub Desktop',
+        message: 'GitHub Desktop keeps running into a problem',
+        detail: `The window has stopped ${this.recentRendererCrashes.length} times in the last ten minutes (${reason}). You can reload it or quit.`,
+        buttons: ['Reload', 'Quit'],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (this.window.isDestroyed()) {
+          return
+        }
+        if (response === 0) {
+          this.window.webContents.reload()
+        } else {
+          app.quit()
+        }
+      })
+  }
+
+  private showUnresponsiveDialog() {
+    if (this.isShowingUnresponsiveDialog || this.window.isDestroyed()) {
+      return
+    }
+
+    this.isShowingUnresponsiveDialog = true
+    dialog
+      .showMessageBox(this.window, {
+        type: 'warning',
+        title: 'GitHub Desktop',
+        message: 'GitHub Desktop is not responding',
+        detail: 'You can keep waiting or reload the window.',
+        buttons: ['Keep waiting', 'Reload'],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      .then(({ response }) => {
+        if (response === 1 && !this.window.isDestroyed()) {
+          log.info('[main] reloading unresponsive window at user request')
+          // Killing the hung renderer fires `render-process-gone`, which
+          // reloads the window via `recoverRenderer`.
+          this.window.webContents.forcefullyCrashRenderer()
+        }
+      })
+      .finally(() => {
+        this.isShowingUnresponsiveDialog = false
+      })
   }
 
   /**
