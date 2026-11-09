@@ -1,4 +1,4 @@
-import type { Model } from '@github/copilot-sdk/dist/generated/rpc'
+import type { Model } from './types'
 import {
   DefaultConflictResolutionReasoningEffort,
   getPreferredDefaultModel,
@@ -8,7 +8,7 @@ import {
 import { IBYOKProvider, parseModelKey } from './byok'
 
 /** Fallback name shown before the Copilot model list has loaded. */
-const DefaultCopilotModelName = 'GPT-5 mini'
+const DefaultCopilotModelName = 'Auto'
 
 /** The model name and reasoning effort to display for conflict resolution. */
 export interface IConflictResolutionModelDisplay {

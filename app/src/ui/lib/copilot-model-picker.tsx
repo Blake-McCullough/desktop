@@ -7,11 +7,9 @@ import { type IBYOKProvider, encodeModelKey } from '../../lib/copilot/byok'
 import { IFilterListGroup, IFilterListItem } from './filter-list'
 import { PopoverDecoration } from './popover'
 import { PopoverDropdown } from './popover-dropdown'
+import { LinkButton } from './link-button'
 import { SectionFilterList } from './section-filter-list'
-import type {
-  Model,
-  ModelBilling,
-} from '@github/copilot-sdk/dist/generated/rpc'
+import type { Model, ModelBilling } from '../../lib/copilot/types'
 
 interface ICopilotModelPickerProps {
   readonly label: string
@@ -19,6 +17,8 @@ interface ICopilotModelPickerProps {
   readonly byokProviders: ReadonlyArray<IBYOKProvider>
   readonly value: string
   readonly onChange: (value: string) => void
+  readonly onConfigureCustomProviders?: () => void
+  readonly maxHeight?: number
 }
 
 interface ICopilotModelPickerState {
@@ -201,9 +201,13 @@ export const getCopilotModelPickerSelectionInfo = (
 }
 
 const getCopilotModelTitle = (item: ICopilotModelListItem) => {
-  const billingLabel = getPremiumRequestsBillingLabel(item.billing)
+  // The "auto" model routes to different models with varying multipliers, so
+  // showing a single multiplier label would be misleading.
+  const billingLabel = item.isDefault
+    ? ''
+    : getPremiumRequestsBillingLabel(item.billing)
   return item.isDefault
-    ? `${item.name}${billingLabel} (default)`
+    ? `${item.name} (default)`
     : `${item.name}${billingLabel}`
 }
 
@@ -376,6 +380,11 @@ export class CopilotModelPicker extends React.Component<
     this.setState({ selectedItemId: selectedItem?.id })
   }
 
+  private onConfigureCustomProviders = () => {
+    this.popoverRef.current?.closePopover()
+    this.props.onConfigureCustomProviders?.()
+  }
+
   private getRowHeight = ({
     item,
   }: {
@@ -456,10 +465,18 @@ export class CopilotModelPicker extends React.Component<
       <PopoverDropdown
         className="copilot-model-picker"
         contentTitle="Choose a model"
+        contentHeaderAccessory={
+          this.props.onConfigureCustomProviders === undefined ? undefined : (
+            <LinkButton onClick={this.onConfigureCustomProviders}>
+              Configure custom providers…
+            </LinkButton>
+          )
+        }
         buttonContent={this.renderButtonContent(buttonItem)}
         buttonAriaLabel={buttonAriaLabel}
         decoration={PopoverDecoration.Bordered}
         label={this.props.label}
+        maxHeight={this.props.maxHeight}
         ref={this.popoverRef}
       >
         <SectionFilterList<ICopilotModelListItem>
