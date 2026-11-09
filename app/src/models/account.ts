@@ -1,5 +1,7 @@
 import { getDotComAPIEndpoint, getHTMLURL, IAPIEmail } from '../lib/api'
 
+export const CopilotLicenseTypeNoAccess = 'NO_ACCESS'
+
 /**
  * Returns a value indicating whether two account instances
  * can be considered equal. Equality is determined by comparing
@@ -10,6 +12,35 @@ import { getDotComAPIEndpoint, getHTMLURL, IAPIEmail } from '../lib/api'
  */
 export function accountEquals(x: Account, y: Account) {
   return x.endpoint === y.endpoint && x.id === y.id
+}
+
+/**
+ * Identifies an account by its endpoint and login without carrying any of its
+ * credentials. Use this when an account needs to be referenced from data that
+ * may outlive the operation it was created for (for example retry actions),
+ * and resolve the signed-in `Account` when its token is needed.
+ */
+export interface IAccountIdentity {
+  readonly endpoint: string
+  readonly login: string
+}
+
+/**
+ * Get a key uniquely identifying an account by its endpoint and login.
+ *
+ * Multiple accounts can be signed in to the same endpoint, so the endpoint
+ * alone doesn't identify an account. Logins are compared case-insensitively.
+ */
+export function getAccountKey(account: IAccountIdentity): string {
+  return `${account.endpoint}/users/${account.login}`.toLowerCase()
+}
+
+/** Whether both refer to the same account, by endpoint and login. */
+export function isSameAccount(
+  x: IAccountIdentity,
+  y: IAccountIdentity | null | undefined
+): boolean {
+  return y != null && getAccountKey(x) === getAccountKey(y)
 }
 
 /**

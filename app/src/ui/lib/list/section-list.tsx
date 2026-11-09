@@ -1080,11 +1080,18 @@ export class SectionList extends React.Component<
         this.state.width !== prevState.width ||
         this.state.height !== prevState.height
 
-      // If the number of groups doesn't change, but the size of them does, we
-      // need to recompute the grid size to ensure that the rows are laid out
-      // correctly.
+      // When rowCount changes (sections added/removed or rows within sections
+      // change), recompute the root grid layout and force section grids to
+      // re-render. The section grids' PureComponent optimization may skip
+      // re-rendering cell content when the render cascade from the root grid
+      // doesn't fully propagate (e.g. when files change while the app is
+      // backgrounded and Chromium throttles rendering).
+      // See https://github.com/desktop/desktop/issues/20566
       if (!hasEqualRowCount) {
         this.rootGrid?.recomputeGridSize()
+        for (const grid of this.grids.values()) {
+          grid.forceUpdate()
+        }
       }
 
       if (!gridHasUpdatedAlready) {
@@ -1390,7 +1397,19 @@ export class SectionList extends React.Component<
           )}
           scrollTop={relativeScrollTop}
           overscanRowCount={4}
-          style={{ ...params.style, width: '100%' }}
+          // The per-section grids are passive windows whose scroll position is
+          // driven entirely by the parent grid via the scrollTop prop above.
+          // They must never scroll on their own; react-virtualized would
+          // otherwise give a section taller than its allotted height an
+          // overflow-y of 'auto', letting it capture the mouse wheel and snap
+          // back to the controlled scrollTop instead of scrolling the list.
+          // See https://github.com/desktop/desktop/issues/22387.
+          style={{
+            ...params.style,
+            width: '100%',
+            overflowX: 'hidden',
+            overflowY: 'hidden',
+          }}
           tabIndex={-1}
           aria-label={this.props.getSectionAriaLabel?.(section)}
         />

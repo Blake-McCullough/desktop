@@ -1,7 +1,9 @@
 import * as React from 'react'
-import * as Path from 'path'
-import { WorktreeEntry } from '../../models/worktree'
-import { shortenSHA } from '../../models/commit'
+import {
+  WorktreeEntry,
+  getWorktreeDescription,
+  getWorktreeDisplayName,
+} from '../../models/worktree'
 import { IMatches } from '../../lib/fuzzy-find'
 import { Octicon } from '../octicons'
 import * as octicons from '../octicons/octicons.generated'
@@ -19,10 +21,17 @@ interface IWorktreeListItemProps {
 export class WorktreeListItem extends React.Component<IWorktreeListItemProps> {
   public render() {
     const { worktree, isCurrentWorktree, matches } = this.props
-    const name = Path.basename(worktree.path)
-    const icon = isCurrentWorktree ? octicons.check : octicons.fileDirectory
+    const name = getWorktreeDisplayName(worktree)
+    const description = getWorktreeDescription(worktree)
+    const isMissing = worktree.isPrunable
+    const icon = isCurrentWorktree
+      ? octicons.check
+      : isMissing
+      ? octicons.alert
+      : octicons.fileDirectory
     const className = classNames('worktrees-list-item', {
       'current-worktree': isCurrentWorktree,
+      'missing-worktree': isMissing,
     })
 
     return (
@@ -37,6 +46,7 @@ export class WorktreeListItem extends React.Component<IWorktreeListItemProps> {
         >
           <HighlightText text={name} highlight={matches.title} />
         </TooltippedContent>
+        {isMissing && <div className="missing-indicator">(missing)</div>}
         <TooltippedContent
           className="description"
           tooltip={worktree.branch ?? worktree.head}
@@ -44,9 +54,7 @@ export class WorktreeListItem extends React.Component<IWorktreeListItemProps> {
           tagName="div"
           disabled={enableAccessibleListToolTips()}
         >
-          {worktree.branch
-            ? worktree.branch.replace(/^refs\/heads\//, '')
-            : shortenSHA(worktree.head)}
+          {description}
         </TooltippedContent>
       </div>
     )

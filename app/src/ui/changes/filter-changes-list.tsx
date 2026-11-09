@@ -13,6 +13,9 @@ import {
 import { DiffSelectionType } from '../../models/diff'
 import { CommitIdentity } from '../../models/commit-identity'
 import { ICommitMessage } from '../../models/commit-message'
+import { CommitMode } from '../../models/commit-mode'
+import { ICopilotAssistedCommitRequest } from '../../models/copilot-assisted-commit'
+import { AssistedCommitRunState } from '../../models/assisted-commit-run'
 import {
   isRepositoryWithGitHubRepository,
   Repository,
@@ -36,7 +39,7 @@ import { ChangedFile } from './changed-file'
 import { IAutocompletionProvider } from '../autocompletion'
 import { showContextualMenu } from '../../lib/menu-item'
 import { arrayEquals } from '../../lib/equality'
-import { clipboard } from 'electron'
+import { writeClipboardText } from '../main-process-proxy'
 import { basename } from 'path'
 import { Commit, ICommitContext } from '../../models/commit'
 import {
@@ -174,6 +177,22 @@ interface IFilterChangesListProps {
    */
   readonly onRowClick?: (row: number, source: ClickSource) => void
   readonly commitMessage: ICommitMessage
+  readonly commitMode: CommitMode
+  readonly pushAfterAssistedCommit?: boolean
+
+  /** Provided only when a real Desktop-owned assisted commit executor is available. */
+  readonly onCreateCopilotAssistedCommits?: (
+    request: ICopilotAssistedCommitRequest
+  ) => void
+
+  /** Assisted operation progress, separate from manual message generation. */
+  readonly isCreatingCopilotAssistedCommits?: boolean
+  readonly repositoryMutationBlocked?: boolean
+
+  readonly assistedCommitState?: AssistedCommitRunState
+  readonly onPrepareCopilotAssistedCommitRequest?: (
+    request: ICopilotAssistedCommitRequest
+  ) => Promise<ICopilotAssistedCommitRequest>
 
   /** The autocompletion providers available to the repository. */
   readonly autocompletionProviders: ReadonlyArray<IAutocompletionProvider<any>>
@@ -585,7 +604,7 @@ export class FilterChangesList extends React.Component<
       label: CopyFilePathLabel,
       action: () => {
         const fullPath = Path.join(this.props.repository.path, file.path)
-        clipboard.writeText(fullPath)
+        writeClipboardText(fullPath)
       },
     }
   }
@@ -595,7 +614,7 @@ export class FilterChangesList extends React.Component<
   ): IMenuItem => {
     return {
       label: CopyRelativeFilePathLabel,
-      action: () => clipboard.writeText(Path.normalize(file.path)),
+      action: () => writeClipboardText(Path.normalize(file.path)),
     }
   }
 
@@ -608,7 +627,7 @@ export class FilterChangesList extends React.Component<
         const fullPaths = files.map(file =>
           Path.join(this.props.repository.path, file.path)
         )
-        clipboard.writeText(fullPaths.join(EOL))
+        writeClipboardText(fullPaths.join(EOL))
       },
     }
   }
@@ -620,7 +639,7 @@ export class FilterChangesList extends React.Component<
       label: CopySelectedRelativePathsLabel,
       action: () => {
         const paths = files.map(file => Path.normalize(file.path))
-        clipboard.writeText(paths.join(EOL))
+        writeClipboardText(paths.join(EOL))
       },
     }
   }
@@ -968,6 +987,10 @@ export class FilterChangesList extends React.Component<
         repository={repository}
         repositoryAccount={repositoryAccount}
         commitMessage={this.props.commitMessage}
+        commitMode={this.props.commitMode}
+        onCommitModeChanged={this.onCommitModeChanged}
+        pushAfterAssistedCommit={this.props.pushAfterAssistedCommit}
+        onPushAfterAssistedCommitChanged={this.onPushAfterAssistedCommitChanged}
         focusCommitMessage={this.props.focusCommitMessage}
         autocompletionProviders={this.props.autocompletionProviders}
         isCommitting={isCommitting}
@@ -1017,6 +1040,26 @@ export class FilterChangesList extends React.Component<
         allowEmptyCommit={this.props.allowEmptyCommit}
         showAllowEmptyCommitOption={true}
         onUpdateCommitOptions={this.props.onUpdateCommitOptions}
+        onCreateCopilotAssistedCommits={
+          this.props.onCreateCopilotAssistedCommits
+        }
+        isCreatingCopilotAssistedCommits={
+          this.props.isCreatingCopilotAssistedCommits
+        }
+        repositoryMutationBlocked={this.props.repositoryMutationBlocked}
+        assistedCommitState={this.props.assistedCommitState}
+        onPrepareCopilotAssistedCommitRequest={
+          this.props.onPrepareCopilotAssistedCommitRequest
+        }
+        onCancelCopilotAssistedCommits={this.onCancelCopilotAssistedCommits}
+        onRetryCopilotAssistedCommitRecovery={
+          this.onRetryCopilotAssistedCommitRecovery
+        }
+        onRetryCopilotAssistedCommitPush={this.onRetryCopilotAssistedCommitPush}
+        onDismissCopilotAssistedCommitError={
+          this.onDismissCopilotAssistedCommitError
+        }
+        onAssistedCommitErrorDetails={this.onAssistedCommitErrorDetails}
       />
     )
   }
@@ -1050,6 +1093,15 @@ export class FilterChangesList extends React.Component<
   private onPersistCommitMessage = (message: ICommitMessage) =>
     this.props.dispatcher.setCommitMessage(this.props.repository, message)
 
+  private onCommitModeChanged = (commitMode: CommitMode) =>
+    this.props.dispatcher.setCommitMode(this.props.repository, commitMode)
+
+  private onPushAfterAssistedCommitChanged = (enabled: boolean) =>
+    this.props.dispatcher.setPushAfterAssistedCommit(
+      this.props.repository,
+      enabled
+    )
+
   private onGenerateCommitMessage = (
     filesSelected: ReadonlyArray<WorkingDirectoryFileChange>,
     mustOverrideExistingMessage: boolean
@@ -1071,6 +1123,57 @@ export class FilterChangesList extends React.Component<
 
   private onCancelGenerateCommitMessage = () => {
     this.props.dispatcher.cancelGenerateCommitMessage(this.props.repository)
+  }
+
+  private onCancelCopilotAssistedCommits = () => {
+    const state = this.props.assistedCommitState
+    if (state !== undefined && state.kind !== 'idle') {
+      this.props.dispatcher.cancelCopilotAssistedCommits(
+        this.props.repository,
+        state.runId
+      )
+    }
+  }
+
+  private onRetryCopilotAssistedCommitRecovery = () => {
+    const state = this.props.assistedCommitState
+    if (state?.kind === 'error') {
+      this.props.dispatcher.retryCopilotAssistedCommitRecovery(
+        this.props.repository,
+        state.runId
+      )
+    }
+  }
+
+  private onRetryCopilotAssistedCommitPush = () => {
+    const state = this.props.assistedCommitState
+    if (state?.kind === 'push-error') {
+      this.props.dispatcher.retryCopilotAssistedCommitPush(
+        this.props.repository,
+        state.runId
+      )
+    }
+  }
+
+  private onDismissCopilotAssistedCommitError = () => {
+    const state = this.props.assistedCommitState
+    if (state?.kind === 'error' || state?.kind === 'push-error') {
+      this.props.dispatcher.dismissCopilotAssistedCommitError(
+        this.props.repository,
+        state.runId
+      )
+    }
+  }
+
+  private onAssistedCommitErrorDetails = () => {
+    const state = this.props.assistedCommitState
+    if (state?.kind === 'push-error' || state?.kind === 'error') {
+      this.props.dispatcher.showPopup({
+        type: PopupType.Error,
+        error: state.error,
+        showCauses: true,
+      })
+    }
   }
 
   private onShowPopup = (p: Popup) => this.props.dispatcher.showPopup(p)

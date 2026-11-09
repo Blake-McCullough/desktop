@@ -3,6 +3,12 @@ import { Account } from '../models/account'
 const Disable = false
 
 /**
+ * Opt in new OAuth authorizations for beta and development features.
+ * Other builds use Central's rollout; existing credentials keep renewing.
+ */
+export const enableShortLivedTokens = () => enableBetaFeatures()
+
+/**
  * Enables the application to opt-in for preview features based on runtime
  * checks. This is backed by the GITHUB_DESKTOP_PREVIEW_FEATURES environment
  * variable, which is checked for non-development environments.
@@ -110,10 +116,14 @@ export const enableCopilotSdkCommitMessageGeneration = (account: Account) => {
   )
 }
 
+/**
+ * Should we offer the Copilot-assisted commit mode, where Copilot splits the
+ * selected changes into commits and writes their messages?
+ */
+export const enableCopilotAssistedCommit = enableDevelopmentFeatures
+
 /** Should we enable Copilot-powered merge conflict resolution? */
-export function enableCopilotConflictResolution(): boolean {
-  return enableBetaFeatures()
-}
+export const enableCopilotConflictResolution = () => true
 
 export function enableAccessibleListToolTips(): boolean {
   return enableBetaFeatures()
@@ -126,6 +136,13 @@ export const enableHooksByDefault = enableBetaFeatures
 export const enableFormattingPreferences = () => true
 
 /** Should the app enable worktree support? */
-export function enableWorktreeSupport(): boolean {
-  return enableBetaFeatures()
+export const enableWorktreeSupport = () => true
+
+/** Should the app offer handoff to the GitHub Copilot app? */
+export const enableCopilotAppHandoff = () =>
+  (__DARWIN__ || __WIN32__) && enableBetaFeatures()
+
+/** Should stats be sent to the new telemetry endpoint? */
+export function enableNewStatsEndpoint(): boolean {
+  return true
 }
