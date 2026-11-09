@@ -11,7 +11,10 @@ import {
   DefaultEditorLabel,
   DefaultShellLabel,
 } from '../lib/context-menu'
-import { ICustomRepositoryGroup, OtherGroupId } from './custom-repository-groups-store'
+import {
+  ICustomRepositoryGroup,
+  OtherGroupId,
+} from './custom-repository-groups-store'
 
 interface IRepositoryListItemContextMenuConfig {
   repository: Repositoryish

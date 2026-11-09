@@ -945,6 +945,26 @@ export class Dispatcher {
     })
   }
 
+  /**
+   * Clone a repository and add it to the app without selecting it or
+   * showing follow-up dialogs. Used when importing many repositories at
+   * once. Resolves to `null` if the clone failed (the error is reported
+   * through the usual error handling).
+   */
+  public async cloneInBackground(
+    url: string,
+    path: string
+  ): Promise<Repository | null> {
+    const { promise } = this.appStore._clone(url, path)
+    const success = await promise
+    if (!success) {
+      return null
+    }
+
+    const added = await this.addRepositories([path])
+    return added.length > 0 ? added[0] : null
+  }
+
   /** Changes the repository alias to a new name. */
   public changeRepositoryAlias(
     repository: Repository,

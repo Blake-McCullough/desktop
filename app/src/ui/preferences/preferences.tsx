@@ -46,6 +46,8 @@ import { Accessibility } from './accessibility'
 import {
   getGitLabToken,
   setGitLabToken,
+  getGitLabInstanceUrls,
+  setGitLabInstanceUrls,
 } from '../../lib/gitlab/gitlab-token'
 import { CopilotPreferences } from './copilot'
 import type {
@@ -212,6 +214,9 @@ interface IPreferencesState {
    */
   readonly gitlabToken?: string | null
   readonly initialGitlabToken?: string | null
+  /** Self-hosted GitLab instance URLs as edited, one per line. */
+  readonly gitlabInstanceUrls: string
+  readonly initialGitlabInstanceUrls: string
 }
 
 /**
@@ -286,6 +291,8 @@ export class Preferences extends React.Component<
       preferAbsoluteDates: getPreferAbsoluteDates(),
       gitlabToken: undefined,
       initialGitlabToken: undefined,
+      gitlabInstanceUrls: getGitLabInstanceUrls().join('\n'),
+      initialGitlabInstanceUrls: getGitLabInstanceUrls().join('\n'),
     }
   }
 
@@ -377,6 +384,10 @@ export class Preferences extends React.Component<
 
   private onGitLabTokenChanged = (gitlabToken: string) => {
     this.setState({ gitlabToken })
+  }
+
+  private onGitLabInstanceUrlsChanged = (gitlabInstanceUrls: string) => {
+    this.setState({ gitlabInstanceUrls })
   }
 
   public componentDidUpdate(prevProps: IPreferencesProps) {
@@ -808,6 +819,8 @@ export class Preferences extends React.Component<
           <GitLab
             token={this.state.gitlabToken}
             onTokenChanged={this.onGitLabTokenChanged}
+            instanceUrls={this.state.gitlabInstanceUrls}
+            onInstanceUrlsChanged={this.onGitLabInstanceUrlsChanged}
             repositories={this.props.repositories}
           />
         )
@@ -1260,8 +1273,21 @@ export class Preferences extends React.Component<
       }
     }
 
+    if (
+      this.state.gitlabInstanceUrls !== this.state.initialGitlabInstanceUrls
+    ) {
+      setGitLabInstanceUrls(this.state.gitlabInstanceUrls.split(/\r?\n/))
+    }
+
     if (this.state.gitlabToken !== this.state.initialGitlabToken) {
-      await setGitLabToken(this.state.gitlabToken ?? null)
+      try {
+        await setGitLabToken(this.state.gitlabToken ?? null)
+      } catch (e) {
+        log.error('Failed to save GitLab token', e)
+        this.props.dispatcher.postError(
+          new Error(`Couldn't save the GitLab token: ${e.message}`)
+        )
+      }
     }
 
     this.props.onDismissed()

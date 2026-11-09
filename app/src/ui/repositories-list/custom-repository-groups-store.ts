@@ -1,3 +1,4 @@
+import { Emitter, Disposable } from 'event-kit'
 import {
   getBoolean,
   setBoolean,
@@ -87,12 +88,37 @@ export const MaxSidebarWidth = 400
 
 const emptyData: IPersistedGroupsData = { groups: [], repositoryGroups: {} }
 
+const emitter = new Emitter()
+
+/**
+ * Register a callback for whenever groups, assignments or collapsed state
+ * change — from the sidebar, an import, or anywhere else.
+ */
+export function onCustomGroupsChanged(fn: () => void): Disposable {
+  return emitter.on('did-change', fn)
+}
+
+function notifyChanged() {
+  emitter.emit('did-change', null)
+}
+
 function readData(): IPersistedGroupsData {
-  return getObject<IPersistedGroupsData>(GroupsStorageKey) ?? emptyData
+  const data = getObject<IPersistedGroupsData>(GroupsStorageKey)
+  if (
+    data === undefined ||
+    data === null ||
+    !Array.isArray(data.groups) ||
+    typeof data.repositoryGroups !== 'object' ||
+    data.repositoryGroups === null
+  ) {
+    return emptyData
+  }
+  return data
 }
 
 function writeData(data: IPersistedGroupsData) {
   setObject(GroupsStorageKey, data)
+  notifyChanged()
 }
 
 /** Get all user-defined groups, in the order they were created. */
@@ -190,7 +216,7 @@ export function setRepositoryGroup(
 }
 
 function createGroupId(): string {
-  return `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  return `group-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
 }
 
 /** Get the set of group ids (including the built-in "Other" group) which are collapsed. */
@@ -210,6 +236,64 @@ export function setGroupCollapsed(groupId: string, collapsed: boolean) {
   }
 
   setObject(CollapsedGroupsStorageKey, Array.from(collapsedIds))
+  notifyChanged()
+}
+
+/**
+ * Find a group by name (case-insensitively), creating it if it doesn't
+ * exist. If the group exists without a color and one is given, the color is
+ * applied. Used when importing.
+ */
+export function findOrCreateGroupByName(
+  name: string,
+  color?: string
+): ICustomRepositoryGroup {
+  const data = readData()
+  const existing = data.groups.find(
+    g => g.name.toLowerCase() === name.toLowerCase()
+  )
+
+  if (existing !== undefined) {
+    if (existing.color === undefined && color !== undefined) {
+      setGroupColor(existing.id, color)
+      return { ...existing, color }
+    }
+    return existing
+  }
+
+  const group: ICustomRepositoryGroup = { id: createGroupId(), name, color }
+  writeData({ ...data, groups: [...data.groups, group] })
+  return group
+}
+
+/**
+ * Assign many repositories to groups in a single write (one storage write
+ * and one change notification instead of one per repository).
+ */
+export function setRepositoryGroups(
+  assignments: ReadonlyArray<{
+    readonly repositoryId: number
+    readonly groupId: string | null
+  }>
+) {
+  if (assignments.length === 0) {
+    return
+  }
+
+  const data = readData()
+  const repositoryGroups: { [repositoryId: string]: string } = {
+    ...data.repositoryGroups,
+  }
+
+  for (const { repositoryId, groupId } of assignments) {
+    if (groupId === null) {
+      delete repositoryGroups[repositoryId.toString()]
+    } else {
+      repositoryGroups[repositoryId.toString()] = groupId
+    }
+  }
+
+  writeData({ ...data, repositoryGroups })
 }
 
 /** Get the persisted width of the repositories sidebar. */
