@@ -74,6 +74,11 @@ export class GitLabApiError extends Error {
   public get isForbidden() {
     return this.status === 403
   }
+
+  /** GitLab (or our own budget) says to slow down. */
+  public get isRateLimited() {
+    return this.status === 429
+  }
 }
 
 const RequestTimeoutMs = 15 * 1000
@@ -252,19 +257,143 @@ async function withRequestSlot<T>(fn: () => Promise<T>): Promise<T> {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-function isRetryable(status: number) {
-  return status === 0 || status === 429 || status >= 500
+/**
+ * Client-side request budget per GitLab instance: a token bucket allowing
+ * short bursts but averaging at most `RequestsPerMinute`. Well under
+ * GitLab's own limits, so the app can't trip them on its own.
+ */
+const RequestsPerMinute = 60
+const BurstSize = 10
+
+/** Never wait less than this after GitLab says we're rate limited. */
+const MinRateLimitPauseMs = 60 * 1000
+const MaxRateLimitPauseMs = 15 * 60 * 1000
+
+/** Below this many remaining requests (per GitLab's headers), back off. */
+const LowRemainingThreshold = 20
+
+interface IHostBudget {
+  tokens: number
+  lastRefill: number
+  /** No requests to this host before this time (epoch ms). */
+  pausedUntil: number
+  /** Next pause length when GitLab rate limits us again. */
+  nextPauseMs: number
 }
 
-function getRetryDelay(response: Response | null, attempt: number) {
-  const retryAfter = response?.headers.get('Retry-After')
-  if (retryAfter != null) {
-    const seconds = parseInt(retryAfter, 10)
-    if (!isNaN(seconds)) {
-      return Math.min(seconds, 60) * 1000
+const budgets = new Map<string, IHostBudget>()
+const rateLimitListeners = new Set<() => void>()
+
+function getBudget(origin: string): IHostBudget {
+  let budget = budgets.get(origin)
+  if (budget === undefined) {
+    budget = {
+      tokens: BurstSize,
+      lastRefill: Date.now(),
+      pausedUntil: 0,
+      nextPauseMs: MinRateLimitPauseMs,
+    }
+    budgets.set(origin, budget)
+  }
+  return budget
+}
+
+function originOf(url: string) {
+  try {
+    return new URL(url).origin
+  } catch {
+    return url
+  }
+}
+
+/** Wait for a token from the host's budget. */
+async function takeToken(budget: IHostBudget) {
+  for (;;) {
+    const now = Date.now()
+    const refill = ((now - budget.lastRefill) / 60000) * RequestsPerMinute
+    budget.tokens = Math.min(BurstSize, budget.tokens + refill)
+    budget.lastRefill = now
+
+    if (budget.tokens >= 1) {
+      budget.tokens -= 1
+      return
+    }
+
+    await delay(((1 - budget.tokens) * 60000) / RequestsPerMinute)
+  }
+}
+
+function pauseHost(budget: IHostBudget, untilMs: number) {
+  if (untilMs > budget.pausedUntil) {
+    budget.pausedUntil = untilMs
+    log.warn(
+      `[GitLab] rate limited; pausing requests until ${new Date(
+        untilMs
+      ).toLocaleTimeString()}`
+    )
+    for (const fn of rateLimitListeners) {
+      fn()
     }
   }
+}
 
+/**
+ * Work out how long to pause from a rate-limited (or nearly exhausted)
+ * response, using GitLab's `Retry-After` / `RateLimit-Reset` headers when
+ * present and an increasing backoff otherwise.
+ */
+function getPauseUntil(response: Response, budget: IHostBudget): number {
+  const now = Date.now()
+  const retryAfter = parseInt(response.headers.get('Retry-After') ?? '', 10)
+  if (!isNaN(retryAfter)) {
+    return now + Math.max(retryAfter * 1000, MinRateLimitPauseMs)
+  }
+
+  const reset = parseInt(response.headers.get('RateLimit-Reset') ?? '', 10)
+  if (!isNaN(reset) && reset * 1000 > now) {
+    return Math.max(reset * 1000, now + MinRateLimitPauseMs)
+  }
+
+  const pause = budget.nextPauseMs
+  budget.nextPauseMs = Math.min(pause * 2, MaxRateLimitPauseMs)
+  return now + pause
+}
+
+/**
+ * When requests are paused because GitLab rate limited us (epoch ms), or
+ * `null` when they aren't.
+ */
+export function getGitLabRateLimitedUntil(): number | null {
+  const now = Date.now()
+  let until: number | null = null
+  for (const budget of budgets.values()) {
+    if (
+      budget.pausedUntil > now &&
+      (until === null || budget.pausedUntil > until)
+    ) {
+      until = budget.pausedUntil
+    }
+  }
+  return until
+}
+
+/** Forget request budgets and pauses. For tests. */
+export function resetGitLabRequestBudgets() {
+  budgets.clear()
+}
+
+/** Be told when a rate-limit pause starts. */
+export function onGitLabRateLimited(fn: () => void): () => void {
+  rateLimitListeners.add(fn)
+  return () => rateLimitListeners.delete(fn)
+}
+
+function isRetryable(status: number) {
+  // 429 is deliberately not retried: we pause instead (see pauseHost).
+  return status === 0 || status >= 500
+}
+
+function getRetryDelay(attempt: number) {
   // 1s, 2s, 4s … with a little jitter so many repositories don't retry in
   // lock step.
   const jitter = crypto.getRandomValues(new Uint8Array(1))[0]
@@ -290,9 +419,22 @@ async function gitLabRequest<T>(
   token: string,
   method: 'GET' | 'POST' = 'GET'
 ): Promise<T> {
+  const budget = getBudget(originOf(url))
   let lastError: GitLabApiError | null = null
 
   for (let attempt = 1; attempt <= MaxAttempts; attempt++) {
+    // While paused, fail fast without touching the network.
+    if (budget.pausedUntil > Date.now()) {
+      throw new GitLabApiError(
+        `GitLab rate limit reached; waiting until ${new Date(
+          budget.pausedUntil
+        ).toLocaleTimeString()}`,
+        429
+      )
+    }
+
+    await takeToken(budget)
+
     let response: Response | null = null
 
     try {
@@ -322,7 +464,27 @@ async function gitLabRequest<T>(
     }
 
     if (response !== null) {
+      if (response.status === 429) {
+        pauseHost(budget, getPauseUntil(response, budget))
+        throw new GitLabApiError(
+          `GitLab rate limit reached; waiting until ${new Date(
+            budget.pausedUntil
+          ).toLocaleTimeString()}`,
+          429
+        )
+      }
+
+      // Slow down before GitLab has to tell us to.
+      const remaining = parseInt(
+        response.headers.get('RateLimit-Remaining') ?? '',
+        10
+      )
+      if (!isNaN(remaining) && remaining < LowRemainingThreshold) {
+        pauseHost(budget, getPauseUntil(response, budget))
+      }
+
       if (response.ok) {
+        budget.nextPauseMs = MinRateLimitPauseMs
         // Some endpoints (e.g. play) can legitimately return an empty body.
         const text = await response.text()
         return (text.length > 0 ? JSON.parse(text) : null) as T
@@ -353,7 +515,7 @@ async function gitLabRequest<T>(
       break
     }
 
-    await delay(getRetryDelay(response, attempt))
+    await delay(getRetryDelay(attempt))
   }
 
   throw lastError ?? new GitLabApiError('Unknown GitLab error', 0)
@@ -365,8 +527,11 @@ async function gitLabRequest<T>(
 
 interface IApiPipeline {
   readonly id: number
+  readonly sha: string
+  readonly ref: string
   readonly status: string
   readonly web_url?: string
+  readonly updated_at?: string
 }
 
 interface IApiJob {
@@ -391,15 +556,15 @@ function isNotAvailable(e: unknown) {
   return e instanceof GitLabApiError && (e.isNotFound || e.isForbidden)
 }
 
-async function fetchPipelineJobs(
+async function fetchJobs(
   project: IGitLabProject,
-  pipeline: IApiPipeline,
+  pipelineId: number,
   token: string
 ): Promise<ReadonlyArray<IGitLabJobStatus>> {
   const jobs = await gitLabRequest<ReadonlyArray<IApiJob>>(
     apiUrl(
       project,
-      `${projectApiPath(project)}/pipelines/${pipeline.id}/jobs?per_page=100`
+      `${projectApiPath(project)}/pipelines/${pipelineId}/jobs?per_page=100`
     ),
     token
   )
@@ -419,17 +584,36 @@ async function fetchPipelineJobs(
   )
 }
 
-async function fetchLatestPipeline(
+/** How many recent pipelines one bulk request returns (GitLab's max page). */
+const RecentPipelinesPageSize = 100
+
+async function fetchRecentPipelines(
   project: IGitLabProject,
-  query: string,
   token: string
-): Promise<IApiPipeline | null> {
+): Promise<ReadonlyArray<IApiPipeline>> {
   const pipelines = await gitLabRequest<ReadonlyArray<IApiPipeline>>(
     apiUrl(
       project,
       `${projectApiPath(
         project
-      )}/pipelines?${query}&order_by=id&sort=desc&per_page=1`
+      )}/pipelines?order_by=id&sort=desc&per_page=${RecentPipelinesPageSize}`
+    ),
+    token
+  )
+  return Array.isArray(pipelines) ? pipelines : []
+}
+
+async function fetchPipelineForSha(
+  project: IGitLabProject,
+  sha: string,
+  token: string
+): Promise<IApiPipeline | null> {
+  const pipelines = await gitLabRequest<ReadonlyArray<IApiPipeline>>(
+    apiUrl(
+      project,
+      `${projectApiPath(project)}/pipelines?sha=${encodeURIComponent(
+        sha
+      )}&order_by=id&sort=desc&per_page=1`
     ),
     token
   )
@@ -488,19 +672,232 @@ async function fetchCommitStatuses(
   return { sha, status: getAggregateStatus(jobs), jobs }
 }
 
+/** Options for `GitLabPipelineResolver.resolve`. */
+export interface IResolvePipelineOptions {
+  /**
+   * The checked-out branch. When the commit has no pipeline, the branch's
+   * latest pipeline is shown instead (marked with `fallbackRef`).
+   */
+  readonly branch?: string | null
+  /** Reuse the project's recent-pipelines list if it's younger than this. */
+  readonly maxAgeMs: number
+  /**
+   * Allow one extra request for a commit whose pipeline is older than the
+   * project's 100 most recent. Off for bulk/background lookups.
+   */
+  readonly allowShaLookup?: boolean
+}
+
+interface IRecentPipelines {
+  readonly pipelines: ReadonlyArray<IApiPipeline>
+  readonly fetchedAt: number
+}
+
+const ShaLookupTtlMs = 30 * 60 * 1000
+const MaxJobCacheEntries = 500
+
 /**
- * Fetch the latest pipeline for a commit along with its jobs.
+ * Resolves pipelines for commits using as few requests as possible:
  *
- * Tries, in order:
- * 1. the pipelines API for the commit (latest pipeline, no retried jobs),
- * 2. the commit statuses API (external CI, or when the pipelines API isn't
- *    available to the token),
- * 3. if `branch` is given, the latest pipeline on that branch — so a
- *    repository whose HEAD has unpushed or un-built commits still shows
- *    the state of its branch (marked with `fallbackRef`).
- *
- * Returns `null` when none of those find anything.
- * Throws a `GitLabApiError` on failure.
+ * - One request lists a project's 100 most recent pipelines; every
+ *   repository and history row for that project shares it.
+ * - A pipeline's jobs are only fetched again when the pipeline changes
+ *   (its `updated_at` or status).
+ * - Older commits cost at most one extra lookup, remembered for 30 minutes.
+ * - Concurrent requests for the same thing are shared.
+ */
+export class GitLabPipelineResolver {
+  private readonly recent = new Map<string, IRecentPipelines>()
+  private readonly recentPending = new Map<
+    string,
+    Promise<IRecentPipelines | null>
+  >()
+  /** Projects where the pipelines API isn't available (403/404). */
+  private readonly pipelinesUnavailable = new Set<string>()
+  private readonly jobs = new Map<
+    number,
+    { readonly key: string; readonly jobs: ReadonlyArray<IGitLabJobStatus> }
+  >()
+  private readonly jobsPending = new Map<
+    string,
+    Promise<ReadonlyArray<IGitLabJobStatus>>
+  >()
+  private readonly shaLookups = new Map<
+    string,
+    { readonly pipeline: IApiPipeline | null; readonly at: number }
+  >()
+
+  /** Forget everything (e.g. when the token or instances change). */
+  public clear() {
+    this.recent.clear()
+    this.recentPending.clear()
+    this.pipelinesUnavailable.clear()
+    this.jobs.clear()
+    this.jobsPending.clear()
+    this.shaLookups.clear()
+  }
+
+  public async resolve(
+    project: IGitLabProject,
+    sha: string,
+    token: string,
+    options: IResolvePipelineOptions
+  ): Promise<IGitLabPipelineInfo | null> {
+    const key = projectKey(project)
+
+    if (this.pipelinesUnavailable.has(key)) {
+      // Some projects refuse the pipelines API but still expose commit
+      // statuses (e.g. external CI).
+      return fetchCommitStatuses(project, sha, token)
+    }
+
+    const recent = await this.getRecent(project, token, options.maxAgeMs)
+    if (recent === null) {
+      return fetchCommitStatuses(project, sha, token)
+    }
+
+    let pipeline = recent.pipelines.find(p => p.sha === sha) ?? null
+
+    // Not among the recent pipelines. If GitLab returned a full page there
+    // may be older ones, so (when allowed) ask about this commit directly.
+    if (
+      pipeline === null &&
+      options.allowShaLookup === true &&
+      recent.pipelines.length >= RecentPipelinesPageSize
+    ) {
+      pipeline = await this.lookupSha(project, sha, token)
+    }
+
+    let fallbackRef: string | undefined
+    if (pipeline === null && options.branch) {
+      pipeline = recent.pipelines.find(p => p.ref === options.branch) ?? null
+      if (pipeline !== null) {
+        fallbackRef = options.branch
+      }
+    }
+
+    if (pipeline === null) {
+      return null
+    }
+
+    return {
+      sha,
+      status: pipeline.status,
+      webUrl: pipeline.web_url,
+      jobs: await this.getJobs(project, pipeline, token),
+      fallbackRef,
+    }
+  }
+
+  private async getRecent(
+    project: IGitLabProject,
+    token: string,
+    maxAgeMs: number
+  ): Promise<IRecentPipelines | null> {
+    const key = projectKey(project)
+    const cached = this.recent.get(key)
+    if (cached !== undefined && Date.now() - cached.fetchedAt <= maxAgeMs) {
+      return cached
+    }
+
+    const pending = this.recentPending.get(key)
+    if (pending !== undefined) {
+      return pending
+    }
+
+    const request = fetchRecentPipelines(project, token)
+      .then(pipelines => {
+        const entry = { pipelines, fetchedAt: Date.now() }
+        this.recent.set(key, entry)
+        return entry
+      })
+      .catch(e => {
+        if (isNotAvailable(e)) {
+          this.pipelinesUnavailable.add(key)
+          return null
+        }
+        // Serve stale data rather than nothing when GitLab is unhappy.
+        if (cached !== undefined) {
+          return cached
+        }
+        throw e
+      })
+      .finally(() => this.recentPending.delete(key))
+
+    this.recentPending.set(key, request)
+    return request
+  }
+
+  private async lookupSha(
+    project: IGitLabProject,
+    sha: string,
+    token: string
+  ): Promise<IApiPipeline | null> {
+    const key = `${projectKey(project)}@${sha}`
+    const cached = this.shaLookups.get(key)
+    if (cached !== undefined && Date.now() - cached.at < ShaLookupTtlMs) {
+      return cached.pipeline
+    }
+
+    const pipeline = await fetchPipelineForSha(project, sha, token)
+    this.shaLookups.set(key, { pipeline, at: Date.now() })
+    if (this.shaLookups.size > 2000) {
+      this.shaLookups.clear()
+    }
+    return pipeline
+  }
+
+  private async getJobs(
+    project: IGitLabProject,
+    pipeline: IApiPipeline,
+    token: string
+  ): Promise<ReadonlyArray<IGitLabJobStatus>> {
+    const version = `${pipeline.status}@${pipeline.updated_at ?? ''}`
+    const cached = this.jobs.get(pipeline.id)
+    if (cached !== undefined && cached.key === version) {
+      return cached.jobs
+    }
+
+    const pendingKey = `${pipeline.id}:${version}`
+    const pending = this.jobsPending.get(pendingKey)
+    if (pending !== undefined) {
+      return pending
+    }
+
+    const request = fetchJobs(project, pipeline.id, token)
+      .then(jobs => {
+        this.jobs.delete(pipeline.id)
+        this.jobs.set(pipeline.id, { key: version, jobs })
+        while (this.jobs.size > MaxJobCacheEntries) {
+          const oldest = this.jobs.keys().next().value
+          if (oldest === undefined) {
+            break
+          }
+          this.jobs.delete(oldest)
+        }
+        return jobs
+      })
+      .catch(e => {
+        // Fall back to the last known jobs if we have them.
+        if (cached !== undefined) {
+          return cached.jobs
+        }
+        throw e
+      })
+      .finally(() => this.jobsPending.delete(pendingKey))
+
+    this.jobsPending.set(pendingKey, request)
+    return request
+  }
+}
+
+function projectKey(project: IGitLabProject) {
+  return `${project.webBaseUrl}/${project.projectPath}`
+}
+
+/**
+ * Fetch the pipeline for a single commit. Convenience wrapper around a
+ * throwaway `GitLabPipelineResolver`; prefer a shared resolver.
  */
 export async function fetchPipelineForCommit(
   project: IGitLabProject,
@@ -508,59 +905,11 @@ export async function fetchPipelineForCommit(
   token: string,
   branch: string | null = null
 ): Promise<IGitLabPipelineInfo | null> {
-  let pipelinesAvailable = true
-  try {
-    const pipeline = await fetchLatestPipeline(
-      project,
-      `sha=${encodeURIComponent(sha)}`,
-      token
-    )
-    if (pipeline !== null) {
-      return {
-        sha,
-        status: pipeline.status,
-        webUrl: pipeline.web_url,
-        jobs: await fetchPipelineJobs(project, pipeline, token),
-      }
-    }
-  } catch (e) {
-    // Some projects (CI/CD disabled for the token's role, older instances)
-    // refuse the pipelines API but still expose commit statuses.
-    if (!isNotAvailable(e)) {
-      throw e
-    }
-    pipelinesAvailable = false
-  }
-
-  const statuses = await fetchCommitStatuses(project, sha, token)
-  if (statuses !== null) {
-    return statuses
-  }
-
-  if (branch !== null && pipelinesAvailable) {
-    try {
-      const pipeline = await fetchLatestPipeline(
-        project,
-        `ref=${encodeURIComponent(branch)}`,
-        token
-      )
-      if (pipeline !== null) {
-        return {
-          sha,
-          status: pipeline.status,
-          webUrl: pipeline.web_url,
-          jobs: await fetchPipelineJobs(project, pipeline, token),
-          fallbackRef: branch,
-        }
-      }
-    } catch (e) {
-      if (!isNotAvailable(e)) {
-        throw e
-      }
-    }
-  }
-
-  return null
+  return new GitLabPipelineResolver().resolve(project, sha, token, {
+    branch,
+    maxAgeMs: 0,
+    allowShaLookup: true,
+  })
 }
 
 /**
