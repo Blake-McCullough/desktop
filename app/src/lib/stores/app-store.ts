@@ -164,7 +164,13 @@ import {
   quitApp,
   sendCancelQuittingSync,
   showOpenDialog,
+  sendWindowRepositoryChanged,
 } from '../../ui/main-process-proxy'
+import {
+  getExcludedRepositoryIds,
+  getLaunchRepositoryId,
+  isSecondaryWindow,
+} from '../window-launch'
 import {
   API,
   getDotComAPIEndpoint,
@@ -651,6 +657,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private currentFoldout: Foldout | null = null
   private currentBanner: Banner | null = null
   private emitQueued = false
+
+  /** Whether the repository this window was launched for has been selected. */
+  private hasSelectedLaunchRepository = false
 
   private readonly localRepositoryStateLookup = new Map<
     number,
@@ -2364,6 +2373,9 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     this.selectedRepository = repository
+    sendWindowRepositoryChanged(
+      repository instanceof Repository ? repository.id : null
+    )
 
     this.emitUpdate()
     this.stopBackgroundFetching()
@@ -2379,7 +2391,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return Promise.resolve(null)
     }
 
-    setNumber(LastSelectedRepositoryIDKey, repository.id)
+    // Additional windows mustn't change which repository the primary
+    // window opens with next time.
+    if (!isSecondaryWindow()) {
+      setNumber(LastSelectedRepositoryIDKey, repository.id)
+    }
 
     const previousRepositoryId = previouslySelectedRepository
       ? previouslySelectedRepository.id
@@ -3216,14 +3232,29 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     if (newSelectedRepository === null && this.repositories.length > 0) {
-      const lastSelectedID = getNumber(LastSelectedRepositoryIDKey, 0)
-      if (lastSelectedID > 0) {
+      // A window opened for a specific repository shows that one.
+      const launchRepositoryId = getLaunchRepositoryId()
+      if (launchRepositoryId !== null && !this.hasSelectedLaunchRepository) {
+        this.hasSelectedLaunchRepository = true
         newSelectedRepository =
-          this.repositories.find(r => r.id === lastSelectedID) || null
+          this.repositories.find(r => r.id === launchRepositoryId) || null
+      }
+
+      // Otherwise avoid repositories that are already open in other
+      // windows, falling back to the usual last-selected repository.
+      const excluded = getExcludedRepositoryIds()
+      const lastSelectedID = getNumber(LastSelectedRepositoryIDKey, 0)
+      if (newSelectedRepository === null && lastSelectedID > 0) {
+        newSelectedRepository =
+          this.repositories.find(
+            r => r.id === lastSelectedID && !excluded.has(r.id)
+          ) || null
       }
 
       if (!newSelectedRepository) {
-        newSelectedRepository = this.repositories[0]
+        newSelectedRepository =
+          this.repositories.find(r => !excluded.has(r.id)) ??
+          this.repositories[0]
       }
     }
 

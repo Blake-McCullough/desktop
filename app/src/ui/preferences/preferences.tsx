@@ -6,6 +6,12 @@ import { TabBar, TabBarType } from '../tab-bar'
 import { Accounts } from './accounts'
 import { Advanced } from './advanced'
 import { GitLab } from './gitlab'
+import { TagColors } from './tag-colors'
+import {
+  ITagColorRule,
+  getTagColorRules,
+  setTagColorRules,
+} from '../../lib/tag-color-rules'
 import { Git } from './git'
 import { assertNever } from '../../lib/fatal-error'
 import { Dialog, DialogFooter, DialogError } from '../dialog'
@@ -214,6 +220,8 @@ interface IPreferencesState {
    */
   readonly gitlabToken?: string | null
   readonly initialGitlabToken?: string | null
+  /** Tag color rules as edited. */
+  readonly tagColorRules: ReadonlyArray<ITagColorRule>
   /** Self-hosted GitLab instance URLs as edited, one per line. */
   readonly gitlabInstanceUrls: string
   readonly initialGitlabInstanceUrls: string
@@ -291,6 +299,7 @@ export class Preferences extends React.Component<
       preferAbsoluteDates: getPreferAbsoluteDates(),
       gitlabToken: undefined,
       initialGitlabToken: undefined,
+      tagColorRules: getTagColorRules(),
       gitlabInstanceUrls: getGitLabInstanceUrls().join('\n'),
       initialGitlabInstanceUrls: getGitLabInstanceUrls().join('\n'),
     }
@@ -390,6 +399,12 @@ export class Preferences extends React.Component<
     this.setState({ gitlabInstanceUrls })
   }
 
+  private onTagColorRulesChanged = (
+    tagColorRules: ReadonlyArray<ITagColorRule>
+  ) => {
+    this.setState({ tagColorRules })
+  }
+
   public componentDidUpdate(prevProps: IPreferencesProps) {
     if (
       prevProps.selectedCopilotModelsByAccount !==
@@ -480,6 +495,10 @@ export class Preferences extends React.Component<
               <Octicon className="icon" symbol={octicons.rocket} />
               GitLab
             </span>
+            <span id={this.getTabId(PreferencesTab.TagColors)}>
+              <Octicon className="icon" symbol={octicons.tag} />
+              Tag colors
+            </span>
           </TabBar>
 
           {this.renderActiveTab()}
@@ -521,6 +540,9 @@ export class Preferences extends React.Component<
         break
       case PreferencesTab.GitLab:
         suffix = 'gitlab'
+        break
+      case PreferencesTab.TagColors:
+        suffix = 'tag-colors'
         break
       default:
         return assertNever(tab, `Unknown tab type: ${tab}`)
@@ -822,6 +844,14 @@ export class Preferences extends React.Component<
             instanceUrls={this.state.gitlabInstanceUrls}
             onInstanceUrlsChanged={this.onGitLabInstanceUrlsChanged}
             repositories={this.props.repositories}
+          />
+        )
+        break
+      case PreferencesTab.TagColors:
+        View = (
+          <TagColors
+            rules={this.state.tagColorRules}
+            onRulesChanged={this.onTagColorRulesChanged}
           />
         )
         break
@@ -1271,6 +1301,10 @@ export class Preferences extends React.Component<
       if (this.state.preferAbsoluteDates !== undefined) {
         dispatcher.setPreferAbsoluteDates(this.state.preferAbsoluteDates)
       }
+    }
+
+    if (this.state.tagColorRules !== getTagColorRules()) {
+      setTagColorRules(this.state.tagColorRules)
     }
 
     if (

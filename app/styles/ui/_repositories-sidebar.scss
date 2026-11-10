@@ -371,10 +371,9 @@
       }
 
       .gitlab-job-dot {
-        border-color: var(--box-selected-active-text-color);
+        border-color: rgba(255, 255, 255, 0.6);
       }
 
-      .gitlab-job-play-button,
       .gitlab-job-more,
       .gitlab-pipeline-error {
         color: var(--box-selected-active-text-color);
@@ -488,54 +487,128 @@
     animation: repositories-sidebar-spin 0.8s linear infinite;
   }
 
-  // "Run" button shown instead of a dot for manual jobs.
-  .gitlab-job-play-button {
-    display: flex;
+  // "Run" button shown instead of a dot for manual jobs: a small filled
+  // pill with a play triangle, turning green on hover.
+  .gitlab-job-run-button {
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    padding: 0;
-    margin: 0;
-    border: 1px solid var(--box-border-color);
-    border-radius: 50%;
+    gap: 1px;
+    box-sizing: border-box;
+    height: 16px;
+    padding: 0 6px 0 2px;
+    margin: 0 0 0 3px;
+    border: 1px solid var(--status-success-color);
+    border-radius: 8px;
     background: transparent;
-    color: var(--text-secondary-color);
+    color: var(--status-success-color);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    line-height: 14px;
     cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
 
-    &:hover {
-      color: var(--text-color);
-      border-color: var(--text-secondary-color);
-      background: var(--box-alt-background-color);
+    svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+
+    &:hover:not(:disabled),
+    &:focus-visible {
+      background: var(--status-success-color);
+      color: #fff;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--focus-color);
+      outline-offset: 1px;
+    }
+
+    &:active:not(:disabled) {
+      transform: scale(0.95);
     }
 
     &.playing,
     &:disabled {
-      opacity: 0.5;
       cursor: default;
+      opacity: 0.7;
     }
 
-    svg {
-      width: 8px;
-      height: 8px;
+    .spin {
+      width: 10px;
+      height: 10px;
+      margin: 0 1px;
+      animation: repositories-sidebar-spin 0.9s linear infinite;
+    }
+  }
+
+  // On the selected (accent-colored) row, use translucent white so the
+  // button stays legible.
+  .repositories-sidebar-item.selected .gitlab-job-run-button {
+    border-color: rgba(255, 255, 255, 0.85);
+    color: var(--box-selected-active-text-color);
+
+    &:hover:not(:disabled) {
+      background: #fff;
+      border-color: #fff;
+      color: var(--status-success-color);
     }
   }
 }
 
-// History list: a single aggregated pipeline dot per commit.
-.commit-list .gitlab-pipeline-indicator,
+// History list: one dot per job for each commit's pipeline.
 .gitlab-pipeline-indicator {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  margin-left: var(--spacing-half);
+  margin: 0 0 0 var(--spacing-half);
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+
+  &.clickable {
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--box-border-color);
+      background: var(--box-alt-background-color);
+    }
+  }
+
+  .gitlab-pipeline-dots {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
 
   .gitlab-job-dot {
     display: inline-block;
+    box-sizing: border-box;
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.25);
     @include gitlab-job-dot-colors;
+
+    &.running {
+      animation: gitlab-job-running 1.6s ease-in-out infinite;
+    }
+
+    // Manual jobs waiting to be run: a hollow ring.
+    &.manual {
+      background: transparent;
+      border: 1.5px solid var(--text-secondary-color);
+      opacity: 1;
+    }
+  }
+
+  .gitlab-job-more {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary-color);
+    margin-left: 1px;
   }
 }
 
@@ -719,5 +792,111 @@
 
   &.error {
     border-color: var(--status-error-color);
+  }
+}
+
+/* --------------------------------------------- preferences: tag colors */
+
+.tag-colors {
+  .tag-color-rules {
+    list-style: none;
+    margin: 0 0 var(--spacing);
+    padding: 0;
+  }
+
+  .tag-color-rule {
+    margin-bottom: var(--spacing-half);
+
+    .rule-row {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-half);
+    }
+
+    .pattern {
+      flex: 1 1 auto;
+
+      input {
+        font-family: var(--font-family-monospace);
+      }
+    }
+
+    .color {
+      width: 32px;
+      height: 26px;
+      padding: 1px;
+      border: var(--base-border);
+      border-radius: var(--border-radius);
+      background: var(--background-color);
+      cursor: pointer;
+    }
+
+    .icon-button.button-component {
+      min-width: 0;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .rule-error {
+      margin-top: 2px;
+      color: var(--status-error-color);
+      font-size: var(--font-size-sm);
+    }
+  }
+
+  .no-rules {
+    color: var(--text-secondary-color);
+  }
+
+  .tag-color-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-half);
+
+    .button-component {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .presets-label {
+      margin-left: var(--spacing);
+      color: var(--text-secondary-color);
+      font-size: var(--font-size-sm);
+    }
+
+    .preset-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+    }
+  }
+}
+
+.tag-color-sample {
+  margin-top: var(--spacing);
+}
+
+.tag-color-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--box-border-color);
+  background: var(--list-item-badge-background-color);
+  color: var(--list-item-badge-color);
+  font-size: var(--font-size-sm);
+  @include ellipsis;
+
+  &.colored {
+    font-weight: var(--font-weight-semibold);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   }
 }

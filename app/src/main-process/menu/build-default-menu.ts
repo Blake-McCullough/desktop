@@ -116,6 +116,14 @@ export function buildDefaultMenuTemplate({
         click: emit('create-repository'),
         accelerator: 'CmdOrCtrl+N',
       },
+      {
+        label: __DARWIN__ ? 'New Window' : 'New &window',
+        id: 'new-window',
+        accelerator: 'CmdOrCtrl+Alt+N',
+        // Handled entirely in the main process (see main.ts); a new window
+        // opens on a repository that isn't already open in another window.
+        click: () => app.emit('desktop-new-window'),
+      },
       separator,
       {
         label: __DARWIN__ ? 'Add Local Repository…' : 'Add &local repository…',

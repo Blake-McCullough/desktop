@@ -102,6 +102,21 @@ function notifyChanged() {
   emitter.emit('did-change', null)
 }
 
+// localStorage is shared by every app window, and the `storage` event fires
+// in the *other* windows when one of them changes it — so group edits made
+// in one window show up in the rest.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', event => {
+    if (
+      event.key === null ||
+      event.key === GroupsStorageKey ||
+      event.key === CollapsedGroupsStorageKey
+    ) {
+      notifyChanged()
+    }
+  })
+}
+
 function readData(): IPersistedGroupsData {
   const data = getObject<IPersistedGroupsData>(GroupsStorageKey)
   if (

@@ -9,6 +9,7 @@ import classNames from 'classnames'
 import { Repository } from '../../models/repository'
 import { IAheadBehind } from '../../models/branch'
 import { Repositoryish } from './group-repositories'
+import { openRepositoryInNewWindow } from '../main-process-proxy'
 import { RepositoryListItem } from './repository-list-item'
 import { IMatches } from '../../lib/fuzzy-find'
 import { Octicon } from '../octicons'
@@ -53,7 +54,19 @@ interface IRepositoriesSidebarRowProps {
  * that only rows whose data actually changed re-render.
  */
 export class RepositoriesSidebarRow extends React.PureComponent<IRepositoriesSidebarRowProps> {
-  private onClick = () => this.props.onClick(this.props.repository)
+  private onClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const { repository } = this.props
+    // Ctrl/Cmd+click opens the repository in its own window.
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      repository instanceof Repository &&
+      !repository.missing
+    ) {
+      openRepositoryInNewWindow(repository.id)
+      return
+    }
+    this.props.onClick(repository)
+  }
 
   private onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -200,13 +213,17 @@ export class RepositoriesSidebarRow extends React.PureComponent<IRepositoriesSid
           key={job.id}
           type="button"
           data-job-id={job.id}
-          className={classNames('gitlab-job-play-button', { playing })}
+          className={classNames('gitlab-job-run-button', { playing })}
           disabled={playing}
           onClick={this.onJobClick}
-          title={`Run "${job.name}"`}
+          title={playing ? `Starting "${job.name}"…` : `Run "${job.name}"`}
           aria-label={`Run ${job.name}`}
         >
-          <Octicon symbol={octicons.play} />
+          <Octicon
+            symbol={playing ? octicons.sync : octicons.triangleRight}
+            className={playing ? 'spin' : undefined}
+          />
+          <span className="label">{playing ? 'Running' : 'Run'}</span>
         </button>
       )
     }

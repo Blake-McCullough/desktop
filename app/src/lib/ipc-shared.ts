@@ -88,6 +88,13 @@ export type RequestChannels = {
   'set-native-theme-source': (themeName: ThemeSource) => void
   'update-window-background-color': (color: string) => void
   'focus-window': () => void
+  /** Tell the main process which repository this window is showing. */
+  'window-repository-changed': (repositoryId: number | null) => void
+  /**
+   * Open a repository in its own window (or focus the window that has it);
+   * `null` opens a window on any repository not already open elsewhere.
+   */
+  'open-repository-in-new-window': (repositoryId: number | null) => void
   'notification-event': NotificationCallback<DesktopAliveEvent>
   'set-window-zoom-factor': (zoomFactor: number) => void
   'show-installing-update': () => void
