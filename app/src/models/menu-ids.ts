@@ -31,7 +31,6 @@ export type MenuIDs =
   | 'open-with-external-editor'
   | 'remove-repository'
   | 'new-repository'
-  | 'new-window'
   | 'add-local-repository'
   | 'clone-repository'
   | 'about'

@@ -30,25 +30,7 @@ import { addTrustedIPCSender } from './trusted-ipc-sender'
 import { getUpdaterGUID } from '../lib/get-updater-guid'
 import { CLIAction } from '../lib/cli-action'
 
-/** Options for creating an `AppWindow`. */
-export interface IAppWindowOptions {
-  /** See `AppWindow.isPrimary`. Defaults to `true`. */
-  readonly isPrimary?: boolean
-  /** Open this repository once the window has loaded. */
-  readonly repositoryId?: number
-  /**
-   * Repositories already open in other windows; when no `repositoryId` is
-   * given the window picks one that isn't among these.
-   */
-  readonly excludeRepositoryIds?: ReadonlyArray<number>
-  /** Position the new window slightly offset from these bounds. */
-  readonly cascadeFrom?: Electron.Rectangle
-}
-
 export class AppWindow {
-  /** Number of `AppWindow`s currently open. */
-  private static openWindowCount = 0
-
   private window: Electron.BrowserWindow
   private emitter = new Emitter()
 
@@ -67,49 +49,18 @@ export class AppWindow {
   private unresponsiveTimer: ReturnType<typeof setTimeout> | null = null
   private isShowingUnresponsiveDialog = false
 
-  /**
-   * Whether this is the primary window: the one that owns the saved window
-   * position, the auto updater and app-wide listeners. Additional windows
-   * (opened for another repository) are lighter weight.
-   */
-  public readonly isPrimary: boolean
-
-  /** The repository this window should open, if launched for one. */
-  public readonly launchRepositoryId: number | null
-  private readonly excludeRepositoryIds: ReadonlyArray<number>
-
-  public constructor(options: IAppWindowOptions = {}) {
-    this.isPrimary = options.isPrimary ?? true
-    this.launchRepositoryId = options.repositoryId ?? null
-    this.excludeRepositoryIds = options.excludeRepositoryIds ?? []
-    AppWindow.openWindowCount++
-
+  public constructor() {
     const savedWindowState = windowStateKeeper({
       defaultWidth: this.minWidth,
       defaultHeight: this.minHeight,
       maximize: false,
     })
 
-    // Additional windows cascade from the window they were opened from
-    // rather than stacking exactly on top of it.
-    const cascadeFrom = options.cascadeFrom
-    const bounds =
-      cascadeFrom !== undefined
-        ? {
-            x: cascadeFrom.x + 32,
-            y: cascadeFrom.y + 32,
-            width: cascadeFrom.width,
-            height: cascadeFrom.height,
-          }
-        : {
-            x: savedWindowState.x,
-            y: savedWindowState.y,
-            width: savedWindowState.width,
-            height: savedWindowState.height,
-          }
-
     const windowOptions: Electron.BrowserWindowConstructorOptions = {
-      ...bounds,
+      x: savedWindowState.x,
+      y: savedWindowState.y,
+      width: savedWindowState.width,
+      height: savedWindowState.height,
       minWidth: this.minWidth,
       minHeight: this.minHeight,
       show: false,
@@ -140,59 +91,33 @@ export class AppWindow {
 
     installNotificationCallback(this.window)
 
-    // Only the primary window remembers its position and size; otherwise
-    // every additional window would overwrite it.
-    if (this.isPrimary) {
-      savedWindowState.manage(this.window)
-      this.shouldMaximizeOnShow = savedWindowState.isMaximized
-    }
-
-    this.window.on('closed', () => {
-      AppWindow.openWindowCount--
-      nativeTheme.removeListener('updated', this.onNativeThemeUpdated)
-    })
+    savedWindowState.manage(this.window)
+    this.shouldMaximizeOnShow = savedWindowState.isMaximized
 
     let quitting = false
     let quittingEvenIfUpdating = false
-    const onBeforeQuit = () => {
+    app.on('before-quit', () => {
       quitting = true
-    }
-    const onWillQuit = (event: Electron.IpcMainEvent) => {
+    })
+
+    ipcMain.on('will-quit', event => {
       quitting = true
       event.returnValue = true
-    }
-    const onWillQuitEvenIfUpdating = (event: Electron.IpcMainEvent) => {
+    })
+
+    ipcMain.on('will-quit-even-if-updating', event => {
       quitting = true
       quittingEvenIfUpdating = true
       event.returnValue = true
-    }
-    const onCancelQuitting = (event: Electron.IpcMainEvent) => {
+    })
+
+    ipcMain.on('cancel-quitting', event => {
       quitting = false
       quittingEvenIfUpdating = false
       event.returnValue = true
-    }
-
-    app.on('before-quit', onBeforeQuit)
-    const removeQuitListeners = [
-      ipcMain.on('will-quit', onWillQuit),
-      ipcMain.on('will-quit-even-if-updating', onWillQuitEvenIfUpdating),
-      ipcMain.on('cancel-quitting', onCancelQuitting),
-    ]
-
-    // With several windows these are registered once per window, so they
-    // must go away with it.
-    this.window.on('closed', () => {
-      app.removeListener('before-quit', onBeforeQuit)
-      removeQuitListeners.forEach(remove => remove())
     })
 
     this.window.on('close', e => {
-      // Additional windows just close; the update and macOS "hide instead
-      // of close" behavior only applies to the last window standing.
-      if (AppWindow.openWindowCount > 1) {
-        return
-      }
-
       // On macOS, closing the window doesn't mean the app is quitting. If the
       // app is updating, we will prevent the window from closing only when the
       // app is also quitting.
@@ -227,18 +152,10 @@ export class AppWindow {
         }
         return
       }
+      nativeTheme.removeAllListeners()
       autoUpdater.removeAllListeners()
       terminateDesktopNotifications()
     })
-  }
-
-  private readonly onNativeThemeUpdated = () => {
-    ipcWebContents.send(this.window.webContents, 'native-theme-updated')
-  }
-
-  /** The window's current position and size. */
-  public getBounds(): Electron.Rectangle {
-    return this.window.getBounds()
   }
 
   /** The main renderer, used to authenticate and target IPC requests. */
@@ -282,20 +199,11 @@ export class AppWindow {
 
     this.installRendererRecovery()
 
-    // Scoped to this window: with several windows open, another window's
-    // renderer must not satisfy this one's readiness.
-    const onRendererReady = (
-      event: Electron.IpcMainEvent,
-      readyTime: number
-    ) => {
-      if (event.sender !== this.window.webContents) {
-        return
-      }
-      removeRendererReady()
+    // TODO: This should be scoped by the window.
+    ipcMain.once('renderer-ready', (_, readyTime) => {
       this._rendererReadyTime = readyTime
       this.maybeEmitDidLoad()
-    }
-    const removeRendererReady = ipcMain.on('renderer-ready', onRendererReady)
+    })
 
     this.window.on('focus', () =>
       ipcWebContents.send(this.window.webContents, 'focus')
@@ -311,39 +219,20 @@ export class AppWindow {
     // formatting defaults. This is a bit of a hack but it avoids the need to
     // have an IPC round trip to get that information from the main process.
     const localeCountryCode = app.getLocaleCountryCode() ?? ''
-    const launchParams = new URLSearchParams({ lc: localeCountryCode })
-    if (!this.isPrimary) {
-      launchParams.set('secondary', '1')
-    }
-    if (this.launchRepositoryId !== null) {
-      launchParams.set('repo', `${this.launchRepositoryId}`)
-    }
-    if (this.excludeRepositoryIds.length > 0) {
-      launchParams.set('exclude', this.excludeRepositoryIds.join(','))
-    }
     this.window.loadURL(
-      encodePathAsUrl(__dirname, 'index.html') + `#${launchParams.toString()}`
+      encodePathAsUrl(__dirname, 'index.html') +
+        `#lc=${encodeURIComponent(localeCountryCode)}`
     )
 
-    nativeTheme.addListener('updated', this.onNativeThemeUpdated)
+    nativeTheme.addListener('updated', () => {
+      ipcWebContents.send(this.window.webContents, 'native-theme-updated')
+    })
 
-    const onBackgroundColor = (event: Electron.IpcMainEvent, color: string) => {
-      if (
-        !this.window.isDestroyed() &&
-        event.sender === this.window.webContents
-      ) {
-        this.window.setBackgroundColor(color)
-      }
-    }
-    const removeBackgroundColor = ipcMain.on(
-      'update-window-background-color',
-      onBackgroundColor
-    )
-    this.window.on('closed', removeBackgroundColor)
+    ipcMain.on('update-window-background-color', (_, color) => {
+      this.window.setBackgroundColor(color)
+    })
 
-    if (this.isPrimary) {
-      this.setupAutoUpdater()
-    }
+    this.setupAutoUpdater()
   }
 
   /**
@@ -393,10 +282,7 @@ export class AppWindow {
     // A GPU process crash (common after sleep/resume or display changes on
     // Windows) can leave the compositor showing nothing but the background
     // color even though the renderer itself is fine. Repainting fixes that.
-    const onChildProcessGone = (
-      _event: Electron.Event,
-      details: Electron.Details
-    ) => {
+    app.on('child-process-gone', (_event, details) => {
       if (details.type !== 'GPU' || details.reason === 'clean-exit') {
         return
       }
@@ -409,11 +295,7 @@ export class AppWindow {
           }
         }, 1000)
       }
-    }
-    app.on('child-process-gone', onChildProcessGone)
-    this.window.on('closed', () =>
-      app.removeListener('child-process-gone', onChildProcessGone)
-    )
+    })
   }
 
   private recoverRenderer(reason: string) {

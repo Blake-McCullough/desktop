@@ -9,7 +9,6 @@ import classNames from 'classnames'
 import { Repository } from '../../models/repository'
 import { IAheadBehind } from '../../models/branch'
 import { Repositoryish } from './group-repositories'
-import { openRepositoryInNewWindow } from '../main-process-proxy'
 import { RepositoryListItem } from './repository-list-item'
 import { IMatches } from '../../lib/fuzzy-find'
 import { Octicon } from '../octicons'
@@ -54,19 +53,7 @@ interface IRepositoriesSidebarRowProps {
  * that only rows whose data actually changed re-render.
  */
 export class RepositoriesSidebarRow extends React.PureComponent<IRepositoriesSidebarRowProps> {
-  private onClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    const { repository } = this.props
-    // Ctrl/Cmd+click opens the repository in its own window.
-    if (
-      (event.ctrlKey || event.metaKey) &&
-      repository instanceof Repository &&
-      !repository.missing
-    ) {
-      openRepositoryInNewWindow(repository.id)
-      return
-    }
-    this.props.onClick(repository)
-  }
+  private onClick = () => this.props.onClick(this.props.repository)
 
   private onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {

@@ -66,17 +66,7 @@ function invalidate() {
   emitter.emit('did-change', null)
 }
 
-// Rules are stored in localStorage, which every app window shares; the
-// `storage` event tells the other windows to pick up changes.
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', event => {
-    if (event.key === null || event.key === StorageKey) {
-      invalidate()
-    }
-  })
-}
-
-/** Subscribe to rule changes (from Preferences or another window). */
+/** Subscribe to rule changes (from Preferences). */
 export function onTagColorRulesChanged(fn: () => void): Disposable {
   return emitter.on('did-change', fn)
 }
