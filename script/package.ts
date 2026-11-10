@@ -22,7 +22,7 @@ import { isGitHubActions } from './build-platforms'
 import { existsSync, rmSync, writeFileSync } from 'fs'
 import { getVersion } from '../app/package-info'
 import { computeBundleHashSync } from '../app/src/lib/compute-bundle-hash'
-import { rename } from 'fs/promises'
+import { readdir, rename } from 'fs/promises'
 import { join } from 'path'
 import { assertNonNullable } from '../app/src/lib/fatal-error'
 
@@ -145,11 +145,34 @@ function packageWindows() {
       // have to rename them here after the fact.
       const arch = getDistArchitecture()
       const prefix = `${getWindowsIdentifierName()}-${getVersion()}`
+      const files = await readdir(outputDir)
 
       for (const kind of shouldMakeDelta() ? ['full', 'delta'] : ['full']) {
-        const from = join(outputDir, `${prefix}-${kind}.nupkg`)
         const to = join(outputDir, `${prefix}-${arch}-${kind}.nupkg`)
 
+        // Squirrel normalizes the version in the package name (e.g. for
+        // prerelease versions), so look for what it actually wrote rather
+        // than assuming the name.
+        const suffix = `-${kind}.nupkg`
+        const actual = files.find(
+          f =>
+            f
+              .toLowerCase()
+              .startsWith(`${getWindowsIdentifierName()}-`.toLowerCase()) &&
+            f.toLowerCase().endsWith(suffix) &&
+            !f.toLowerCase().endsWith(`-${arch}${suffix}`)
+        )
+
+        if (actual === undefined) {
+          // The setup exe/msi are already written at this point; a missing
+          // nupkg only matters for publishing update feeds.
+          console.warn(
+            `No ${kind} nupkg found in ${outputDir}; skipping rename`
+          )
+          continue
+        }
+
+        const from = join(outputDir, actual)
         console.log(`Renaming ${from} to ${to}`)
         await rename(from, to)
       }
