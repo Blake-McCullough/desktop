@@ -146,6 +146,7 @@ import { ChangeRepositoryAlias } from './change-repository-alias/change-reposito
 import { RepositoryGroupNameDialog } from './repositories-list/repository-group-name-dialog'
 import { RepositoryGroupColorDialog } from './repositories-list/repository-group-color-dialog'
 import { ImportRepositoriesDialog } from './repositories-list/import-repositories-dialog'
+import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
 import { ThankYou } from './thank-you'
 import {
   getUserContributions,
@@ -2594,6 +2595,16 @@ export class App extends React.Component<IAppProps, IAppState> {
             okButtonText={popup.okButtonText}
             defaultValue={popup.defaultValue}
             onSubmit={popup.onSubmit}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
+      case PopupType.WorktreeViewer: {
+        return (
+          <WorktreeViewerDialog
+            key="worktree-viewer"
+            dispatcher={this.props.dispatcher}
+            repository={popup.repository}
             onDismissed={onPopupDismissedFn}
           />
         )

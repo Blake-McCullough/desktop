@@ -131,6 +131,7 @@ export enum PopupType {
   RepositoryGroupNamePrompt = 'RepositoryGroupNamePrompt',
   RepositoryGroupColorPrompt = 'RepositoryGroupColorPrompt',
   ImportRepositories = 'ImportRepositories',
+  WorktreeViewer = 'WorktreeViewer',
 }
 
 interface IBasePopup {
@@ -598,6 +599,10 @@ export type PopupDetail =
       defaultValue?: string
       /** Called with the entered, normalized `#rrggbb` hex color when the user submits */
       onSubmit: (hex: string) => void
+    }
+  | {
+      type: PopupType.WorktreeViewer
+      repository: Repository
     }
   | {
       type: PopupType.ImportRepositories

@@ -900,3 +900,225 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   }
 }
+
+/* ------------------------------------------------------ worktree viewer */
+
+#worktree-viewer {
+  width: 680px;
+  max-width: 92vw;
+
+  .worktree-viewer-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-half);
+    margin-bottom: var(--spacing);
+
+    .summary {
+      flex: 1 1 auto;
+      color: var(--text-secondary-color);
+    }
+
+    .button-component {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .spin {
+      animation: repositories-sidebar-spin 0.9s linear infinite;
+    }
+  }
+
+  .worktree-error {
+    padding: var(--spacing-half) var(--spacing);
+    margin-bottom: var(--spacing);
+    border: 1px solid var(--status-error-color);
+    border-radius: var(--border-radius);
+    color: var(--status-error-color);
+  }
+
+  .worktree-cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .worktree-card {
+    display: flex;
+    gap: var(--spacing);
+    padding: var(--spacing);
+    margin-bottom: var(--spacing-half);
+    border: var(--base-border);
+    border-radius: 6px;
+    background: var(--background-color);
+
+    &.current {
+      border-color: var(--focus-color);
+      box-shadow: inset 3px 0 0 var(--focus-color);
+    }
+
+    &.missing {
+      opacity: 0.7;
+      border-style: dashed;
+    }
+  }
+
+  .worktree-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .worktree-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-half);
+
+    .name {
+      font-weight: var(--font-weight-semibold);
+      font-size: var(--font-size-md);
+      @include ellipsis;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 0 6px;
+      border-radius: 9px;
+      font-size: var(--font-size-xs);
+      line-height: 16px;
+      background: var(--box-alt-background-color);
+      color: var(--text-secondary-color);
+      border: var(--base-border);
+      white-space: nowrap;
+
+      svg {
+        width: 10px;
+      }
+
+      &.current {
+        background: var(--focus-color);
+        border-color: var(--focus-color);
+        color: #fff;
+      }
+
+      &.warning {
+        border-color: var(--status-pending-color);
+        color: var(--status-pending-color);
+      }
+    }
+  }
+
+  .worktree-branch {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    .branch {
+      font-family: var(--font-family-monospace);
+      font-size: var(--font-size-sm);
+      @include ellipsis;
+    }
+  }
+
+  .worktree-path {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary-color);
+    @include ellipsis;
+  }
+
+  .worktree-commit {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    font-size: var(--font-size-sm);
+
+    code {
+      color: var(--text-secondary-color);
+    }
+
+    .subject {
+      flex: 1 1 auto;
+      min-width: 0;
+      @include ellipsis;
+    }
+
+    .date {
+      flex-shrink: 0;
+      color: var(--text-secondary-color);
+    }
+  }
+
+  .worktree-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    font-size: var(--font-size-sm);
+
+    &.muted {
+      color: var(--text-secondary-color);
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 0 6px;
+      border-radius: 9px;
+      line-height: 18px;
+      background: var(--box-alt-background-color);
+
+      svg {
+        width: 11px;
+      }
+
+      &.dirty {
+        color: var(--status-pending-color);
+      }
+
+      &.muted {
+        color: var(--text-secondary-color);
+      }
+    }
+  }
+
+  .muted {
+    color: var(--text-secondary-color);
+  }
+
+  .worktree-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--spacing-half);
+    flex-shrink: 0;
+
+    .switch-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .icon-actions {
+      display: flex;
+      gap: 2px;
+    }
+
+    .icon-button.button-component {
+      min-width: 0;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+}
