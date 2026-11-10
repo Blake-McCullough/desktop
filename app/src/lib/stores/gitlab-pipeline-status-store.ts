@@ -9,10 +9,12 @@ import {
 } from '../gitlab/gitlab-token'
 import {
   GitLabApiError,
+  GitLabPipelineResolver,
   IGitLabPipelineInfo,
   IGitLabProject,
-  fetchPipelineForCommit,
+  getGitLabRateLimitedUntil,
   isActiveStatus,
+  onGitLabRateLimited,
   parseGitLabProject,
   playGitLabJob,
   probeGitLabHost,
@@ -23,11 +25,26 @@ import {
 /** How many repositories to refresh concurrently. */
 const RefreshConcurrency = 4
 
-/** Poll interval when nothing is running. */
-const IdlePollIntervalMs = 3 * 60 * 1000
+/** Shortest and longest time between polling ticks. */
+const MinPollIntervalMs = 30 * 1000
+const MaxPollIntervalMs = 3 * 60 * 1000
 
-/** Poll interval while at least one pipeline is running or pending. */
-const ActivePollIntervalMs = 30 * 1000
+/**
+ * How often each repository is re-checked when its HEAD hasn't moved: often
+ * while its pipeline is running, rarely once it's finished or has none.
+ * A new commit or branch switch is always picked up on the next tick.
+ */
+const ActiveRecheckMs = 30 * 1000
+const FinishedRecheckMs = 5 * 60 * 1000
+const NoPipelineRecheckMs = 10 * 60 * 1000
+const ErrorRecheckMs = 5 * 60 * 1000
+
+/** How fresh the shared recent-pipelines list must be for each use. */
+const ActiveMaxAgeMs = 20 * 1000
+const IdleMaxAgeMs = 2 * 60 * 1000
+
+/** Wait this long before fetching a history row, so fast scrolling is free. */
+const CommitFetchDelayMs = 400
 
 /** How long to remember which GitLab project (if any) a repository maps to. */
 const ProjectCacheTtlMs = 10 * 60 * 1000
@@ -35,20 +52,13 @@ const ProjectCacheTtlMs = 10 * 60 * 1000
 /** How long to back off from a project GitLab says doesn't exist (404/403). */
 const NotFoundBackoffMs = 30 * 60 * 1000
 
-/**
- * A finished pipeline for an unchanged HEAD won't change, so there's no need
- * to ask GitLab about it on every poll. Re-check occasionally anyway in case
- * a job was retried.
- */
-const FinishedPipelineTtlMs = 10 * 60 * 1000
-
 /** Max number of per-commit results kept in memory. */
 const MaxCommitCacheEntries = 300
 
 /** Per-commit cache lifetimes. */
 const CommitActiveTtlMs = 30 * 1000
-const CommitFinishedTtlMs = 60 * 60 * 1000
-const CommitNoPipelineTtlMs = 5 * 60 * 1000
+const CommitFinishedTtlMs = 6 * 60 * 60 * 1000
+const CommitNoPipelineTtlMs = 15 * 60 * 1000
 
 /** Pipeline state for one repository's current HEAD. */
 export interface IRepositoryPipelineState {
@@ -130,6 +140,18 @@ class GitLabPipelineStatusStore {
   private statuses: Map<number, IRepositoryPipelineState> = new Map()
 
   private readonly projects = new Map<number, IProjectCacheEntry>()
+  private readonly resolver = new GitLabPipelineResolver()
+
+  /**
+   * Projects confirmed accessible this session (keyed by URL), and ones
+   * found inaccessible with when to try again. Checked once, not per poll.
+   */
+  private readonly accessibleProjects = new Set<string>()
+  private readonly inaccessibleProjects = new Map<string, number>()
+
+  /** Per repository: when it's next due a check, and the HEAD last seen. */
+  private readonly nextDue = new Map<number, number>()
+  private readonly lastHeadSha = new Map<number, string>()
   private readonly hostProbes = new Map<
     string,
     { readonly result: Promise<boolean>; readonly expiresAt: number }
@@ -156,6 +178,11 @@ class GitLabPipelineStatusStore {
         this.projects.clear()
         this.hostProbes.clear()
         this.commitCache.clear()
+        this.resolver.clear()
+        this.accessibleProjects.clear()
+        this.inaccessibleProjects.clear()
+        this.nextDue.clear()
+        this.lastHeadSha.clear()
         this.statuses = new Map()
         this.scheduleEmit()
         this.pollNow()
@@ -166,6 +193,12 @@ class GitLabPipelineStatusStore {
       document.addEventListener('visibilitychange', this.onVisibilityChange)
       window.addEventListener('online', this.onOnline)
     }
+
+    // Show the pause in the UI, and resume as soon as it's over.
+    onGitLabRateLimited(() => {
+      this.scheduleEmit()
+      this.scheduleNextPoll()
+    })
   }
 
   /* ----------------------------- subscriptions ---------------------------- */
@@ -227,6 +260,11 @@ class GitLabPipelineStatusStore {
     return this.authError
   }
 
+  /** When requests resume after GitLab rate limited us, or `null`. */
+  public getRateLimitedUntil(): number | null {
+    return getGitLabRateLimitedUntil()
+  }
+
   /* -------------------------------- polling ------------------------------- */
 
   /**
@@ -269,13 +307,22 @@ class GitLabPipelineStatusStore {
     this.pollTimer = window.setTimeout(this.pollNow, this.getPollInterval())
   }
 
+  /** Time until the next repository is due, within sensible bounds. */
   private getPollInterval() {
-    for (const state of this.statuses.values()) {
-      if (state.pipeline !== null && isActiveStatus(state.pipeline.status)) {
-        return ActivePollIntervalMs
-      }
+    const now = Date.now()
+    const rateLimitedUntil = getGitLabRateLimitedUntil()
+    if (rateLimitedUntil !== null) {
+      return Math.max(MinPollIntervalMs, rateLimitedUntil - now + 1000)
     }
-    return IdlePollIntervalMs
+
+    let soonest = now + MaxPollIntervalMs
+    for (const due of this.nextDue.values()) {
+      soonest = Math.min(soonest, due)
+    }
+    return Math.min(
+      MaxPollIntervalMs,
+      Math.max(MinPollIntervalMs, soonest - now)
+    )
   }
 
   private onVisibilityChange = () => {
@@ -288,7 +335,7 @@ class GitLabPipelineStatusStore {
   }
 
   private onOnline = () => {
-    if (Date.now() - this.lastPollAt > ActivePollIntervalMs) {
+    if (Date.now() - this.lastPollAt > MinPollIntervalMs) {
       this.pollNow()
     }
   }
@@ -320,7 +367,11 @@ class GitLabPipelineStatusStore {
     options: { force?: boolean } = {}
   ): Promise<void> {
     const token = await getGitLabToken()
-    if (token === null || this.authError !== null) {
+    if (
+      token === null ||
+      this.authError !== null ||
+      getGitLabRateLimitedUntil() !== null
+    ) {
       return
     }
 
@@ -378,30 +429,44 @@ class GitLabPipelineStatusStore {
         return
       }
 
-      const previous = this.statuses.get(repository.id)
-      if (
-        !force &&
-        previous !== undefined &&
-        previous.error === null &&
-        previous.pipeline !== null &&
-        previous.pipeline.sha === sha &&
-        !isActiveStatus(previous.pipeline.status) &&
-        Date.now() - previous.fetchedAt < FinishedPipelineTtlMs
-      ) {
+      // Nothing to do until this repository is due again, unless its HEAD
+      // moved (new commit, pull, branch switch).
+      const headMoved = this.lastHeadSha.get(repository.id) !== sha
+      const due = this.nextDue.get(repository.id) ?? 0
+      if (!force && !headMoved && Date.now() < due) {
         return
       }
+      this.lastHeadSha.set(repository.id, sha)
+
+      const previous = this.statuses.get(repository.id)
+      const wasActive =
+        previous?.pipeline != null && isActiveStatus(previous.pipeline.status)
 
       markedFetching = true
       this.setRepositoryState(repository.id, { isFetching: true })
 
       const branch = await this.getHeadBranch(repository)
-      const pipeline = await fetchPipelineForCommit(project, sha, token, branch)
+      const pipeline = await this.resolver.resolve(project, sha, token, {
+        branch,
+        maxAgeMs: force || wasActive ? ActiveMaxAgeMs : IdleMaxAgeMs,
+        allowShaLookup: true,
+      })
       this.setRepositoryState(repository.id, {
         pipeline,
         isFetching: false,
         error: null,
         fetchedAt: Date.now(),
       })
+
+      this.nextDue.set(
+        repository.id,
+        Date.now() +
+          (pipeline === null
+            ? NoPipelineRecheckMs
+            : isActiveStatus(pipeline.status)
+            ? ActiveRecheckMs
+            : FinishedRecheckMs)
+      )
 
       // Keep the per-commit cache in sync so the history list doesn't need
       // to ask again for HEAD (unless it's the branch's pipeline rather
@@ -411,6 +476,7 @@ class GitLabPipelineStatusStore {
       }
     } catch (e) {
       this.handleError(repository, e)
+      this.nextDue.set(repository.id, Date.now() + ErrorRecheckMs)
       if (markedFetching) {
         this.setRepositoryState(repository.id, {
           isFetching: false,
@@ -432,6 +498,12 @@ class GitLabPipelineStatusStore {
         this.scheduleEmit()
         return
       }
+
+      if (e.isRateLimited) {
+        // Already logged once by the API layer; everything waits for the
+        // pause to end.
+        return
+      }
     }
 
     log.warn(
@@ -451,9 +523,14 @@ class GitLabPipelineStatusStore {
     project: IGitLabProject,
     token: string
   ): Promise<boolean> {
-    const cached = this.projects.get(repository.id)
-    if (cached?.verified === true) {
+    const key = `${project.webBaseUrl}/${project.projectPath}`
+    if (this.accessibleProjects.has(key)) {
       return true
+    }
+
+    const retryAt = this.inaccessibleProjects.get(key)
+    if (retryAt !== undefined && Date.now() < retryAt) {
+      return false
     }
 
     try {
@@ -463,21 +540,14 @@ class GitLabPipelineStatusStore {
         log.info(
           `[GitLab] '${repository.name}' (${project.projectPath} on ${project.webBaseUrl}) isn't accessible with this token (${e.status}); backing off`
         )
-        this.projects.set(repository.id, {
-          project: null,
-          expiresAt: Date.now() + NotFoundBackoffMs,
-          verified: false,
-        })
+        this.inaccessibleProjects.set(key, Date.now() + NotFoundBackoffMs)
         return false
       }
       throw e
     }
 
-    this.projects.set(repository.id, {
-      project,
-      expiresAt: cached?.expiresAt ?? Date.now() + ProjectCacheTtlMs,
-      verified: true,
-    })
+    this.accessibleProjects.add(key)
+    this.inaccessibleProjects.delete(key)
     return true
   }
 
@@ -673,12 +743,21 @@ class GitLabPipelineStatusStore {
     if (
       (cached === undefined || this.isCommitEntryStale(cached)) &&
       !this.pendingCommitKeys.has(key) &&
-      this.authError === null
+      this.authError === null &&
+      getGitLabRateLimitedUntil() === null
     ) {
       this.pendingCommitKeys.add(key)
-      this.fetchCommitPipeline(repository, sha, key).finally(() =>
-        this.pendingCommitKeys.delete(key)
-      )
+      // Wait a moment: rows scrolled past quickly (no longer listened to by
+      // then) cost nothing.
+      window.setTimeout(() => {
+        if (!this.commitListeners.has(key)) {
+          this.pendingCommitKeys.delete(key)
+          return
+        }
+        this.fetchCommitPipeline(repository, sha, key).finally(() =>
+          this.pendingCommitKeys.delete(key)
+        )
+      }, CommitFetchDelayMs)
     }
 
     return cached?.pipeline
@@ -703,7 +782,10 @@ class GitLabPipelineStatusStore {
         return
       }
 
-      const pipeline = await fetchPipelineForCommit(project, sha, token)
+      const pipeline = await this.resolver.resolve(project, sha, token, {
+        maxAgeMs: IdleMaxAgeMs,
+        allowShaLookup: true,
+      })
       this.storeCommitResult(key, pipeline)
     } catch (e) {
       this.handleError(repository, e)

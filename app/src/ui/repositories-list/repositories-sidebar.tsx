@@ -119,6 +119,8 @@ interface IRepositoriesSidebarState {
   /** Latest known GitLab pipeline states, keyed by repository id. */
   readonly pipelineStatuses: IGitLabPipelineStatusMap
   readonly gitLabAuthError: string | null
+  /** When GitLab requests resume after a rate limit (epoch ms), or null. */
+  readonly gitLabRateLimitedUntil: number | null
 
   /** Ids of jobs currently being "played" (manual job run in flight). */
   readonly playingJobIds: ReadonlySet<number>
@@ -227,6 +229,7 @@ export class RepositoriesSidebar extends React.PureComponent<
       filterText: '',
       pipelineStatuses: gitLabPipelineStatusStore.getStatuses(),
       gitLabAuthError: gitLabPipelineStatusStore.getAuthError(),
+      gitLabRateLimitedUntil: gitLabPipelineStatusStore.getRateLimitedUntil(),
       playingJobIds: EmptyPlayingJobIds,
       notice: null,
     }
@@ -238,6 +241,8 @@ export class RepositoriesSidebar extends React.PureComponent<
         this.setState({
           pipelineStatuses,
           gitLabAuthError: gitLabPipelineStatusStore.getAuthError(),
+          gitLabRateLimitedUntil:
+            gitLabPipelineStatusStore.getRateLimitedUntil(),
         })
       }),
       onCustomGroupsChanged(this.refreshFromStore)
@@ -887,6 +892,26 @@ export class RepositoriesSidebar extends React.PureComponent<
   }
 
   private renderGitLabAuthError() {
+    const { gitLabRateLimitedUntil } = this.state
+    if (
+      this.state.gitLabAuthError === null &&
+      gitLabRateLimitedUntil !== null &&
+      gitLabRateLimitedUntil > Date.now()
+    ) {
+      const time = new Date(gitLabRateLimitedUntil).toLocaleTimeString(
+        undefined,
+        { hour: '2-digit', minute: '2-digit' }
+      )
+      return (
+        <div className="repositories-sidebar-warning" role="status">
+          <Octicon symbol={octicons.clock} />
+          <span>
+            GitLab rate limit reached — pipeline updates resume at {time}
+          </span>
+        </div>
+      )
+    }
+
     if (this.state.gitLabAuthError === null) {
       return null
     }
