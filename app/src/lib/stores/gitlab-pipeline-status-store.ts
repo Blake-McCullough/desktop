@@ -15,7 +15,9 @@ import {
   isActiveStatus,
   parseGitLabProject,
   playGitLabJob,
+  probeGitLabHost,
   resolveGitLabInstance,
+  verifyGitLabProject,
 } from '../gitlab/gitlab-api'
 
 /** How many repositories to refresh concurrently. */
@@ -69,7 +71,12 @@ export type IGitLabPipelineStatusMap = ReadonlyMap<
 interface IProjectCacheEntry {
   readonly project: IGitLabProject | null
   readonly expiresAt: number
+  /** Whether we've confirmed the token can see this project. */
+  readonly verified: boolean
 }
+
+/** How long to remember whether an unrecognized host runs GitLab. */
+const HostProbeTtlMs = 60 * 60 * 1000
 
 interface ICommitCacheEntry {
   readonly pipeline: IGitLabPipelineInfo | null
@@ -123,6 +130,10 @@ class GitLabPipelineStatusStore {
   private statuses: Map<number, IRepositoryPipelineState> = new Map()
 
   private readonly projects = new Map<number, IProjectCacheEntry>()
+  private readonly hostProbes = new Map<
+    string,
+    { readonly result: Promise<boolean>; readonly expiresAt: number }
+  >()
   private readonly inFlightRepositoryIds = new Set<number>()
 
   private readonly commitCache = new Map<string, ICommitCacheEntry>()
@@ -143,6 +154,7 @@ class GitLabPipelineStatusStore {
       onGitLabSettingsChanged(() => {
         this.authError = null
         this.projects.clear()
+        this.hostProbes.clear()
         this.commitCache.clear()
         this.statuses = new Map()
         this.scheduleEmit()
@@ -357,6 +369,10 @@ class GitLabPipelineStatusStore {
         return
       }
 
+      if (!(await this.ensureProjectAccessible(repository, project, token))) {
+        return
+      }
+
       const sha = await this.getHeadSha(repository)
       if (sha === null) {
         return
@@ -378,7 +394,8 @@ class GitLabPipelineStatusStore {
       markedFetching = true
       this.setRepositoryState(repository.id, { isFetching: true })
 
-      const pipeline = await fetchPipelineForCommit(project, sha, token)
+      const branch = await this.getHeadBranch(repository)
+      const pipeline = await fetchPipelineForCommit(project, sha, token, branch)
       this.setRepositoryState(repository.id, {
         pipeline,
         isFetching: false,
@@ -387,8 +404,11 @@ class GitLabPipelineStatusStore {
       })
 
       // Keep the per-commit cache in sync so the history list doesn't need
-      // to ask again for HEAD.
-      this.storeCommitResult(this.commitKey(repository, sha), pipeline)
+      // to ask again for HEAD (unless it's the branch's pipeline rather
+      // than this commit's).
+      if (pipeline === null || pipeline.fallbackRef === undefined) {
+        this.storeCommitResult(this.commitKey(repository, sha), pipeline)
+      }
     } catch (e) {
       this.handleError(repository, e)
       if (markedFetching) {
@@ -412,17 +432,6 @@ class GitLabPipelineStatusStore {
         this.scheduleEmit()
         return
       }
-
-      if (e.isNotFound || e.isForbidden) {
-        this.projects.set(repository.id, {
-          project: null,
-          expiresAt: Date.now() + NotFoundBackoffMs,
-        })
-        log.info(
-          `[GitLab] '${repository.name}' isn't accessible with this token (${e.status}); backing off`
-        )
-        return
-      }
     }
 
     log.warn(
@@ -430,6 +439,67 @@ class GitLabPipelineStatusStore {
         repository.name
       }': ${describeError(e)}`
     )
+  }
+
+  /**
+   * Confirm (once per cache period) that the token can see the project. A
+   * 404/403 here — and only here — means the repository is backed off, so
+   * a missing commit or a restricted endpoint can't hide a whole project.
+   */
+  private async ensureProjectAccessible(
+    repository: Repository,
+    project: IGitLabProject,
+    token: string
+  ): Promise<boolean> {
+    const cached = this.projects.get(repository.id)
+    if (cached?.verified === true) {
+      return true
+    }
+
+    try {
+      await verifyGitLabProject(project, token)
+    } catch (e) {
+      if (e instanceof GitLabApiError && (e.isNotFound || e.isForbidden)) {
+        log.info(
+          `[GitLab] '${repository.name}' (${project.projectPath} on ${project.webBaseUrl}) isn't accessible with this token (${e.status}); backing off`
+        )
+        this.projects.set(repository.id, {
+          project: null,
+          expiresAt: Date.now() + NotFoundBackoffMs,
+          verified: false,
+        })
+        return false
+      }
+      throw e
+    }
+
+    this.projects.set(repository.id, {
+      project,
+      expiresAt: cached?.expiresAt ?? Date.now() + ProjectCacheTtlMs,
+      verified: true,
+    })
+    return true
+  }
+
+  /** Whether an unrecognized host runs GitLab (cached, probed without the token). */
+  private isGitLabHost(project: IGitLabProject): Promise<boolean> {
+    const key = project.webBaseUrl
+    const cached = this.hostProbes.get(key)
+    if (cached !== undefined && cached.expiresAt > Date.now()) {
+      return cached.result
+    }
+
+    const result = probeGitLabHost(project.webBaseUrl).then(isGitLab => {
+      if (isGitLab) {
+        log.info(`[GitLab] detected a GitLab instance at ${key}`)
+      }
+      return isGitLab
+    })
+    this.hostProbes.set(key, {
+      result,
+      expiresAt: Date.now() + HostProbeTtlMs,
+    })
+    return result
   }
 
   /**
@@ -457,10 +527,19 @@ class GitLabPipelineStatusStore {
 
       for (const remote of ordered) {
         const parsed = parseGitLabProject(remote.url)
-        const resolved =
-          parsed === null ? null : resolveGitLabInstance(parsed, instances)
+        if (parsed === null) {
+          continue
+        }
+
+        const resolved = resolveGitLabInstance(parsed, instances)
         if (resolved !== null) {
           project = resolved
+          break
+        }
+
+        // Not configured and not obviously GitLab by name: ask the server.
+        if (await this.isGitLabHost(parsed)) {
+          project = parsed
           break
         }
       }
@@ -471,8 +550,25 @@ class GitLabPipelineStatusStore {
     this.projects.set(repository.id, {
       project,
       expiresAt: Date.now() + ProjectCacheTtlMs,
+      verified: false,
     })
     return project
+  }
+
+  /** The checked-out branch name, or `null` when HEAD is detached. */
+  private async getHeadBranch(repository: Repository): Promise<string | null> {
+    try {
+      const result = await git(
+        ['symbolic-ref', '--short', '-q', 'HEAD'],
+        repository.path,
+        'gitlabPipelineHeadBranch',
+        { successExitCodes: new Set([0, 1]) }
+      )
+      const branch = result.stdout.trim()
+      return branch.length > 0 ? branch : null
+    } catch {
+      return null
+    }
   }
 
   private async getHeadSha(repository: Repository): Promise<string | null> {
@@ -600,7 +696,10 @@ class GitLabPipelineStatusStore {
       }
 
       const project = await this.resolveProject(repository)
-      if (project === null) {
+      if (
+        project === null ||
+        !(await this.ensureProjectAccessible(repository, project, token))
+      ) {
         return
       }
 

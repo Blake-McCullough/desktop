@@ -162,8 +162,14 @@ export class RepositoriesSidebarRow extends React.PureComponent<IRepositoriesSid
       <div
         className={classNames('gitlab-pipeline-status', {
           stale: error !== null,
+          'branch-fallback': pipeline.fallbackRef !== undefined,
         })}
-        title={error ?? undefined}
+        title={
+          error ??
+          (pipeline.fallbackRef !== undefined
+            ? `No pipeline for the checked-out commit — showing the latest pipeline on ${pipeline.fallbackRef}`
+            : undefined)
+        }
       >
         {visible.map(this.renderJob)}
         {hidden > 0 && (
