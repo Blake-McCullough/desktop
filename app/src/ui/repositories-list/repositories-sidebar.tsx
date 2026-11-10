@@ -143,6 +143,7 @@ export class RepositoriesSidebar extends React.PureComponent<
 > {
   private readonly disposables: Array<Disposable> = []
   private noticeTimer: number | null = null
+  private repositoriesRefreshTimer: number | null = null
   private filterInputRef = React.createRef<HTMLInputElement>()
 
   private getSections = memoizeOne(
@@ -248,6 +249,13 @@ export class RepositoriesSidebar extends React.PureComponent<
   }
 
   public componentDidUpdate(prevProps: IRepositoriesSidebarProps) {
+    // Repositories load asynchronously at startup (and change when added,
+    // cloned or imported). Fetch for any we haven't seen rather than
+    // waiting for the next poll; the store skips ones it already knows.
+    if (prevProps.repositories !== this.props.repositories) {
+      this.scheduleRepositoriesRefresh()
+    }
+
     if (
       prevProps.selectedRepositoryTipSha !==
         this.props.selectedRepositoryTipSha &&
@@ -265,6 +273,19 @@ export class RepositoriesSidebar extends React.PureComponent<
     if (this.noticeTimer !== null) {
       window.clearTimeout(this.noticeTimer)
     }
+    if (this.repositoriesRefreshTimer !== null) {
+      window.clearTimeout(this.repositoriesRefreshTimer)
+    }
+  }
+
+  private scheduleRepositoriesRefresh() {
+    if (this.repositoriesRefreshTimer !== null) {
+      window.clearTimeout(this.repositoriesRefreshTimer)
+    }
+    this.repositoriesRefreshTimer = window.setTimeout(() => {
+      this.repositoriesRefreshTimer = null
+      gitLabPipelineStatusStore.refresh(this.getPollableRepositories())
+    }, 1000)
   }
 
   private getPollableRepositories = (): ReadonlyArray<Repository> =>

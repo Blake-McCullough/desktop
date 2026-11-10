@@ -42,6 +42,11 @@ export interface IGitLabPipelineInfo {
   readonly webUrl?: string
   /** Jobs in stage order, without retried duplicates. */
   readonly jobs: ReadonlyArray<IGitLabJobStatus>
+  /**
+   * Set when the commit itself had no pipeline and this is instead the
+   * latest pipeline on its branch (e.g. HEAD has unpushed commits).
+   */
+  readonly fallbackRef?: string
 }
 
 /** An error returned by the GitLab API (or a failure to reach it). */
@@ -381,66 +386,80 @@ interface IApiCommitStatus {
   readonly created_at?: string
 }
 
-/**
- * Fetch the latest pipeline for a commit along with its jobs.
- *
- * Uses the pipelines API (latest pipeline only, retried jobs excluded) and
- * falls back to the commit statuses API for commits whose statuses come from
- * an external CI system. Returns `null` when the commit has no pipeline or
- * statuses at all.
- *
- * Throws a `GitLabApiError` on failure.
- */
-export async function fetchPipelineForCommit(
+/** Whether an error means "this endpoint isn't available to us" rather than a real failure. */
+function isNotAvailable(e: unknown) {
+  return e instanceof GitLabApiError && (e.isNotFound || e.isForbidden)
+}
+
+async function fetchPipelineJobs(
+  project: IGitLabProject,
+  pipeline: IApiPipeline,
+  token: string
+): Promise<ReadonlyArray<IGitLabJobStatus>> {
+  const jobs = await gitLabRequest<ReadonlyArray<IApiJob>>(
+    apiUrl(
+      project,
+      `${projectApiPath(project)}/pipelines/${pipeline.id}/jobs?per_page=100`
+    ),
+    token
+  )
+
+  return (
+    (Array.isArray(jobs) ? jobs : [])
+      .map(job => ({
+        id: job.id,
+        name: `${job.name}`,
+        status: `${job.status ?? 'unknown'}`,
+        stage: job.stage,
+        webUrl: job.web_url,
+      }))
+      // Jobs are created in stage order, so ascending id is a reliable
+      // display order.
+      .sort((a, b) => a.id - b.id)
+  )
+}
+
+async function fetchLatestPipeline(
+  project: IGitLabProject,
+  query: string,
+  token: string
+): Promise<IApiPipeline | null> {
+  const pipelines = await gitLabRequest<ReadonlyArray<IApiPipeline>>(
+    apiUrl(
+      project,
+      `${projectApiPath(
+        project
+      )}/pipelines?${query}&order_by=id&sort=desc&per_page=1`
+    ),
+    token
+  )
+  return Array.isArray(pipelines) && pipelines.length > 0 ? pipelines[0] : null
+}
+
+async function fetchCommitStatuses(
   project: IGitLabProject,
   sha: string,
   token: string
 ): Promise<IGitLabPipelineInfo | null> {
-  const base = projectApiPath(project)
-  const pipelines = await gitLabRequest<ReadonlyArray<IApiPipeline>>(
-    apiUrl(
-      project,
-      `${base}/pipelines?sha=${encodeURIComponent(
-        sha
-      )}&order_by=id&sort=desc&per_page=1`
-    ),
-    token
-  )
-
-  if (Array.isArray(pipelines) && pipelines.length > 0) {
-    const pipeline = pipelines[0]
-    const jobs = await gitLabRequest<ReadonlyArray<IApiJob>>(
-      apiUrl(project, `${base}/pipelines/${pipeline.id}/jobs?per_page=100`),
+  let statuses: ReadonlyArray<IApiCommitStatus>
+  try {
+    statuses = await gitLabRequest<ReadonlyArray<IApiCommitStatus>>(
+      apiUrl(
+        project,
+        `${projectApiPath(project)}/repository/commits/${encodeURIComponent(
+          sha
+        )}/statuses?per_page=100`
+      ),
       token
     )
-
-    return {
-      sha,
-      status: pipeline.status,
-      webUrl: pipeline.web_url,
-      jobs: (Array.isArray(jobs) ? jobs : [])
-        .map(job => ({
-          id: job.id,
-          name: `${job.name}`,
-          status: `${job.status ?? 'unknown'}`,
-          stage: job.stage,
-          webUrl: job.web_url,
-        }))
-        // Jobs are created in stage order, so ascending id is a reliable
-        // display order.
-        .sort((a, b) => a.id - b.id),
+  } catch (e) {
+    // 404 here means GitLab doesn't know the commit (e.g. it hasn't been
+    // pushed), not that the project is inaccessible.
+    if (isNotAvailable(e)) {
+      return null
     }
+    throw e
   }
-
-  const statuses = await gitLabRequest<ReadonlyArray<IApiCommitStatus>>(
-    apiUrl(
-      project,
-      `${base}/repository/commits/${encodeURIComponent(
-        sha
-      )}/statuses?per_page=100`
-    ),
-    token
-  )
 
   if (!Array.isArray(statuses) || statuses.length === 0) {
     return null
@@ -466,10 +485,152 @@ export async function fetchPipelineForCommit(
     }))
     .sort((a, b) => a.id - b.id)
 
-  return {
-    sha,
-    status: getAggregateStatus(jobs),
-    jobs,
+  return { sha, status: getAggregateStatus(jobs), jobs }
+}
+
+/**
+ * Fetch the latest pipeline for a commit along with its jobs.
+ *
+ * Tries, in order:
+ * 1. the pipelines API for the commit (latest pipeline, no retried jobs),
+ * 2. the commit statuses API (external CI, or when the pipelines API isn't
+ *    available to the token),
+ * 3. if `branch` is given, the latest pipeline on that branch — so a
+ *    repository whose HEAD has unpushed or un-built commits still shows
+ *    the state of its branch (marked with `fallbackRef`).
+ *
+ * Returns `null` when none of those find anything.
+ * Throws a `GitLabApiError` on failure.
+ */
+export async function fetchPipelineForCommit(
+  project: IGitLabProject,
+  sha: string,
+  token: string,
+  branch: string | null = null
+): Promise<IGitLabPipelineInfo | null> {
+  let pipelinesAvailable = true
+  try {
+    const pipeline = await fetchLatestPipeline(
+      project,
+      `sha=${encodeURIComponent(sha)}`,
+      token
+    )
+    if (pipeline !== null) {
+      return {
+        sha,
+        status: pipeline.status,
+        webUrl: pipeline.web_url,
+        jobs: await fetchPipelineJobs(project, pipeline, token),
+      }
+    }
+  } catch (e) {
+    // Some projects (CI/CD disabled for the token's role, older instances)
+    // refuse the pipelines API but still expose commit statuses.
+    if (!isNotAvailable(e)) {
+      throw e
+    }
+    pipelinesAvailable = false
+  }
+
+  const statuses = await fetchCommitStatuses(project, sha, token)
+  if (statuses !== null) {
+    return statuses
+  }
+
+  if (branch !== null && pipelinesAvailable) {
+    try {
+      const pipeline = await fetchLatestPipeline(
+        project,
+        `ref=${encodeURIComponent(branch)}`,
+        token
+      )
+      if (pipeline !== null) {
+        return {
+          sha,
+          status: pipeline.status,
+          webUrl: pipeline.web_url,
+          jobs: await fetchPipelineJobs(project, pipeline, token),
+          fallbackRef: branch,
+        }
+      }
+    } catch (e) {
+      if (!isNotAvailable(e)) {
+        throw e
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Check that a project exists and the token can see it.
+ *
+ * Throws a `GitLabApiError` (404/403 when it isn't accessible).
+ */
+export async function verifyGitLabProject(
+  project: IGitLabProject,
+  token: string
+): Promise<void> {
+  await gitLabRequest(apiUrl(project, projectApiPath(project)), token)
+}
+
+/** Hosts that are definitely not GitLab, so never worth probing. */
+const KnownNonGitLabHosts = [
+  'github.com',
+  'bitbucket.org',
+  'dev.azure.com',
+  'ssh.dev.azure.com',
+  'visualstudio.com',
+  'codeberg.org',
+  'sourceforge.net',
+  'gitee.com',
+]
+
+/**
+ * Detect whether an arbitrary host runs GitLab, WITHOUT sending the token
+ * (the host might not be GitLab at all). GitLab answers an anonymous
+ * `GET /api/v4/version` with a JSON 401 (or 200 on public instances);
+ * other servers answer with HTML or a 404.
+ */
+export async function probeGitLabHost(webBaseUrl: string): Promise<boolean> {
+  const host = (() => {
+    try {
+      return new URL(webBaseUrl).hostname.toLowerCase()
+    } catch {
+      return ''
+    }
+  })()
+
+  if (
+    host.length === 0 ||
+    KnownNonGitLabHosts.some(h => host === h || host.endsWith(`.${h}`))
+  ) {
+    return false
+  }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  try {
+    const response = await fetch(`${webBaseUrl}/api/v4/version`, {
+      signal: controller.signal,
+      cache: 'no-store',
+      credentials: 'omit',
+      redirect: 'manual',
+    })
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.includes('json')) {
+      return false
+    }
+    const body = await response.json()
+    return (
+      (response.status === 401 && /unauthorized/i.test(`${body?.message}`)) ||
+      (response.ok && typeof body?.version === 'string')
+    )
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
