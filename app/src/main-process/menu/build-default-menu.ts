@@ -213,6 +213,12 @@ export function buildDefaultMenuTemplate({
         click: emit('show-worktrees'),
         visible: enableWorktreeSupport(),
       },
+      {
+        label: __DARWIN__ ? 'Show History Graph' : '&History graph',
+        id: 'show-commit-graph',
+        accelerator: 'CmdOrCtrl+Alt+G',
+        click: emit('show-commit-graph'),
+      },
       separator,
       {
         label: __DARWIN__ ? 'Go to Summary' : 'Go to &Summary',

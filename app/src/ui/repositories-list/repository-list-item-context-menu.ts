@@ -34,6 +34,8 @@ interface IRepositoryListItemContextMenuConfig {
   onShowWorktrees?: (repository: Repository) => void
   onChangeRepositoryAccount: (repository: Repository, login: string) => void
   onShowRepositorySettings: (repository: Repository) => void
+  /** Opens the history graph window; omitted where it isn't available. */
+  onViewHistoryGraph?: (repository: Repository) => void
 
   /**
    * The custom groups the repository could be moved into. When provided
@@ -67,7 +69,18 @@ export const generateRepositoryListContextMenu = (
     ? `Open in ${config.shellLabel}`
     : DefaultShellLabel
 
+  const onViewHistoryGraph = config.onViewHistoryGraph
   const items: ReadonlyArray<IMenuItem> = [
+    ...(repository instanceof Repository && onViewHistoryGraph !== undefined
+      ? [
+          {
+            label: __DARWIN__ ? 'View History Graph…' : 'View history graph…',
+            action: () => onViewHistoryGraph(repository),
+            enabled: !missing,
+          },
+          { type: 'separator' as const },
+        ]
+      : []),
     ...buildAliasMenuItems(config),
     ...buildWorktreeMenuItems(config),
     ...buildGroupMenuItems(config),

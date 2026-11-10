@@ -147,6 +147,7 @@ import { RepositoryGroupNameDialog } from './repositories-list/repository-group-
 import { RepositoryGroupColorDialog } from './repositories-list/repository-group-color-dialog'
 import { ImportRepositoriesDialog } from './repositories-list/import-repositories-dialog'
 import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
+import { CommitGraphDialog } from './commit-graph/commit-graph-dialog'
 import { ThankYou } from './thank-you'
 import {
   getUserContributions,
@@ -468,6 +469,8 @@ export class App extends React.Component<IAppProps, IAppState> {
         return this.showBranches()
       case 'show-worktrees':
         return this.showWorktrees()
+      case 'show-commit-graph':
+        return this.showCommitGraph()
       case 'create-worktree':
         return this.showCreateWorktree()
       case 'remove-repository':
@@ -953,6 +956,18 @@ export class App extends React.Component<IAppProps, IAppState> {
     }
 
     return this.props.dispatcher.showFoldout({ type: FoldoutType.Branch })
+  }
+
+  private showCommitGraph() {
+    const state = this.state.selectedState
+    if (state == null || state.type !== SelectionType.Repository) {
+      return
+    }
+
+    this.props.dispatcher.showPopup({
+      type: PopupType.CommitGraph,
+      repository: state.repository,
+    })
   }
 
   private showWorktrees() {
@@ -2595,6 +2610,15 @@ export class App extends React.Component<IAppProps, IAppState> {
             okButtonText={popup.okButtonText}
             defaultValue={popup.defaultValue}
             onSubmit={popup.onSubmit}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
+      case PopupType.CommitGraph: {
+        return (
+          <CommitGraphDialog
+            key="commit-graph"
+            repository={popup.repository}
             onDismissed={onPopupDismissedFn}
           />
         )

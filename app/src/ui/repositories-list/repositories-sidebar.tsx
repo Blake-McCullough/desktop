@@ -515,6 +515,7 @@ export class RepositoriesSidebar extends React.PureComponent<
       onCreateWorktree: enableWorktreeSupport()
         ? this.onCreateWorktree
         : undefined,
+      onViewHistoryGraph: this.onViewHistoryGraph,
       onShowWorktrees: enableWorktreeSupport()
         ? this.onShowWorktrees
         : undefined,
@@ -531,6 +532,13 @@ export class RepositoriesSidebar extends React.PureComponent<
 
   private onCreateWorktree = (repository: Repository) => {
     this.props.dispatcher.showPopup({ type: PopupType.AddWorktree, repository })
+  }
+
+  private onViewHistoryGraph = (repository: Repository) => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.CommitGraph,
+      repository,
+    })
   }
 
   private onShowWorktrees = (repository: Repository) => {

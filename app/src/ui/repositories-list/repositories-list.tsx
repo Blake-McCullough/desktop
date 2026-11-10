@@ -317,6 +317,7 @@ export class RepositoriesList extends React.Component<
       onCreateWorktree: enableWorktreeSupport()
         ? this.onCreateWorktree
         : undefined,
+      onViewHistoryGraph: this.onViewHistoryGraph,
       onShowWorktrees: enableWorktreeSupport()
         ? this.onShowWorktrees
         : undefined,
@@ -483,6 +484,13 @@ export class RepositoriesList extends React.Component<
   private onCreateWorktree = (repository: Repository) => {
     this.props.dispatcher.showPopup({
       type: PopupType.AddWorktree,
+      repository,
+    })
+  }
+
+  private onViewHistoryGraph = (repository: Repository) => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.CommitGraph,
       repository,
     })
   }

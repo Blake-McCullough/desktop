@@ -146,6 +146,7 @@ const allMenuIds: ReadonlyArray<MenuIDs> = [
   'toggle-stashed-changes',
   'create-worktree',
   'show-worktrees-list',
+  'show-commit-graph',
 ]
 
 function getAllMenusDisabledBuilder(): MenuStateBuilder {
@@ -251,6 +252,7 @@ function getRepositoryMenuBuilder(state: IAppState): MenuStateBuilder {
     'show-history',
     'show-branches-list',
     'show-worktrees-list',
+    'show-commit-graph',
     'open-external-editor',
     ...(enableCopilotAppHandoff() ? (['open-in-copilot-app'] as const) : []),
     'open-with-external-editor',
