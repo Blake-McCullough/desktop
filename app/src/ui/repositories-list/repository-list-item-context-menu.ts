@@ -156,7 +156,7 @@ const buildWorktreeMenuItems = (
 
   if (onShowWorktrees !== undefined) {
     items.push({
-      label: __DARWIN__ ? 'Show Worktrees' : 'Show worktrees',
+      label: __DARWIN__ ? 'View Worktrees…' : 'View worktrees…',
       action: () => onShowWorktrees(repository),
     })
   }

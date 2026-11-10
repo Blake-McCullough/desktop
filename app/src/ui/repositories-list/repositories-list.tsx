@@ -488,7 +488,9 @@ export class RepositoriesList extends React.Component<
   }
 
   private onShowWorktrees = (repository: Repository) => {
-    this.props.dispatcher.selectRepository(repository)
-    this.props.dispatcher.showWorktreesFoldout()
+    this.props.dispatcher.showPopup({
+      type: PopupType.WorktreeViewer,
+      repository,
+    })
   }
 }
