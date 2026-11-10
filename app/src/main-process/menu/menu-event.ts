@@ -9,6 +9,7 @@ export type MenuEvent =
   | 'create-branch'
   | 'show-branches'
   | 'show-worktrees'
+  | 'show-commit-graph'
   | 'create-worktree'
   | 'remove-repository'
   | 'create-repository'

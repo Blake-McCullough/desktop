@@ -40,6 +40,7 @@ export type MenuIDs =
   | 'create-issue-in-repository-on-github'
   | 'create-worktree'
   | 'show-worktrees-list'
+  | 'show-commit-graph'
   | 'preview-pull-request'
   | 'decrease-active-resizable-width'
   | 'increase-active-resizable-width'
