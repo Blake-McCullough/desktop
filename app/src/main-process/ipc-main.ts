@@ -22,13 +22,8 @@ type RequestResponseChannelListener<T extends keyof RequestResponseChannels> = (
 export function on<T extends keyof RequestChannels>(
   channel: T,
   listener: RequestChannelListener<T>
-): () => void {
-  const wrapped = safeListener(listener)
-  ipcMain.on(channel, wrapped)
-  // Returned so per-window listeners can be removed when the window closes.
-  return () => {
-    ipcMain.removeListener(channel, wrapped)
-  }
+) {
+  ipcMain.on(channel, safeListener(listener))
 }
 
 /**

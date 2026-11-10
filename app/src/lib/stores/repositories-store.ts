@@ -59,32 +59,8 @@ export class RepositoriesStore extends TypedBaseStore<
   /** Incremented whenever an update is requested, see `emitUpdatedRepositories`. */
   private updateVersion = 0
 
-  /**
-   * Lets other app windows (each its own renderer with its own copy of
-   * this store) know the repository list changed, so a repository added
-   * or removed in one window shows up in the others.
-   */
-  private readonly channel: BroadcastChannel | null = createChannel()
-  private broadcastTimer: ReturnType<typeof setTimeout> | null = null
-
   public constructor(private readonly db: RepositoriesDatabase) {
     super()
-
-    if (this.channel !== null) {
-      this.channel.onmessage = () => this.queueEmit()
-    }
-  }
-
-  private broadcastChange() {
-    if (this.channel === null || this.broadcastTimer !== null) {
-      return
-    }
-    // Coalesce bursts (e.g. many GitHub repository upserts during a
-    // refresh) into one message.
-    this.broadcastTimer = setTimeout(() => {
-      this.broadcastTimer = null
-      this.channel?.postMessage('changed')
-    }, 500)
   }
 
   /**
@@ -1077,12 +1053,6 @@ export class RepositoriesStore extends TypedBaseStore<
    * never receive repositories older than ones a caller already got back.
    */
   private emitUpdatedRepositories() {
-    this.queueEmit()
-    this.broadcastChange()
-  }
-
-  /** Re-read and emit the repository list (without telling other windows). */
-  private queueEmit() {
     this.updateVersion++
     if (!this.emitQueued) {
       this.emitQueued = true
@@ -1106,19 +1076,6 @@ export class RepositoriesStore extends TypedBaseStore<
       log.error(`Failed emitting update`, e)
     }
   }
-}
-
-function createChannel(): BroadcastChannel | null {
-  if (
-    typeof window === 'undefined' ||
-    typeof BroadcastChannel === 'undefined'
-  ) {
-    return null
-  }
-  const channel = new BroadcastChannel('desktop-repositories')
-  // Under Node (tests) an open channel would keep the process alive.
-  ;(channel as { unref?: () => void }).unref?.()
-  return channel
 }
 
 /** Whether an asynchronous caller still holds the current account and remote. */

@@ -5,10 +5,7 @@ import {
 import { Account, isSameAccount } from '../../models/account'
 import { IMenuItem } from '../../lib/menu-item'
 import { Repositoryish } from './group-repositories'
-import {
-  openRepositoryInNewWindow,
-  writeClipboardText,
-} from '../main-process-proxy'
+import { writeClipboardText } from '../main-process-proxy'
 import {
   RevealInFileManagerLabel,
   DefaultEditorLabel,
@@ -71,16 +68,6 @@ export const generateRepositoryListContextMenu = (
     : DefaultShellLabel
 
   const items: ReadonlyArray<IMenuItem> = [
-    ...(repository instanceof Repository
-      ? [
-          {
-            label: __DARWIN__ ? 'Open in New Window' : 'Open in new window',
-            action: () => openRepositoryInNewWindow(repository.id),
-            enabled: !missing,
-          },
-          { type: 'separator' as const },
-        ]
-      : []),
     ...buildAliasMenuItems(config),
     ...buildWorktreeMenuItems(config),
     ...buildGroupMenuItems(config),
