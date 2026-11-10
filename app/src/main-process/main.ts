@@ -13,7 +13,7 @@ import {
 } from 'electron'
 import * as Fs from 'fs'
 
-import { AppWindow } from './app-window'
+import { AppWindow, IAppWindowOptions } from './app-window'
 import { buildDefaultMenu, getAllMenuItems } from './menu'
 import { shellNeedsPatching, updateEnvironmentForProcess } from '../lib/shell'
 import { parseAppURL } from '../lib/parse-app-url'
@@ -58,7 +58,35 @@ import { CLIAction } from '../lib/cli-action'
 app.setAppLogsPath()
 enableSourceMaps()
 
+/**
+ * The primary window: receives app-wide events (URL and CLI actions,
+ * certificate errors, updates). Additional windows opened for other
+ * repositories live in `windows` too.
+ */
 let mainWindow: AppWindow | null = null
+
+/** Every open app window, primary included. */
+const windows = new Set<AppWindow>()
+
+/** The repository each window is showing, keyed by webContents id. */
+const windowRepositories = new Map<number, number | null>()
+
+/** The app window a renderer IPC message came from, or the primary window. */
+function windowFor(sender: Electron.WebContents): AppWindow | null {
+  for (const window of windows) {
+    if (window.webContents === sender) {
+      return window
+    }
+  }
+  return mainWindow
+}
+
+/** Send the current application menu to every window (each renders its own on Windows/Linux). */
+function sendAppMenuToAll() {
+  for (const window of windows) {
+    window.sendAppMenu()
+  }
+}
 
 const launchTime = now()
 
@@ -80,10 +108,11 @@ function handleUncaughtException(error: Error) {
   // it's a safe assumption to make.
   const isLaunchError = mainWindow === null
 
-  if (mainWindow) {
-    mainWindow.destroy()
-    mainWindow = null
+  for (const window of windows) {
+    window.destroy()
   }
+  windows.clear()
+  mainWindow = null
 
   showUncaughtException(isLaunchError, error)
 }
@@ -377,7 +406,7 @@ app.on('ready', () => {
   )
 
   ipcMain.on('update-accounts', (event, accounts) => {
-    if (event.sender !== mainWindow?.webContents) {
+    if (![...windows].some(w => w.webContents === event.sender)) {
       return
     }
     imageTokenResolver.updateAccounts(accounts)
@@ -406,9 +435,7 @@ app.on('ready', () => {
       // https://github.com/electron/electron/issues/2717
       Menu.setApplicationMenu(newMenu)
 
-      if (mainWindow !== null) {
-        mainWindow.sendAppMenu()
-      }
+      sendAppMenuToAll()
 
       return
     }
@@ -455,7 +482,7 @@ app.on('ready', () => {
     if (menuHasChanged && mainWindow) {
       // https://github.com/electron/electron/issues/2717
       Menu.setApplicationMenu(newMenu)
-      mainWindow.sendAppMenu()
+      sendAppMenuToAll()
     }
   })
 
@@ -478,7 +505,21 @@ app.on('ready', () => {
     }
   })
 
-  ipcMain.on('update-menu-state', (_, items) => {
+  ipcMain.on('update-menu-state', (event, items) => {
+    // The application menu is shared, so only the window the user is
+    // working in gets to decide which items are enabled. Each window
+    // re-sends its state when it gains focus.
+    const focused = BrowserWindow.getFocusedWindow()
+    const sender = windowFor(event.sender)
+    if (
+      windows.size > 1 &&
+      (focused === null
+        ? sender !== mainWindow
+        : focused.webContents !== event.sender)
+    ) {
+      return
+    }
+
     let sendMenuChangedEvent = false
 
     const currentMenu = Menu.getApplicationMenu()
@@ -508,7 +549,7 @@ app.on('ready', () => {
 
     if (sendMenuChangedEvent && mainWindow) {
       Menu.setApplicationMenu(currentMenu)
-      mainWindow.sendAppMenu()
+      sendAppMenuToAll()
     }
   })
 
@@ -552,33 +593,39 @@ app.on('ready', () => {
 
   ipcMain.on('quit-app', () => app.quit())
 
-  ipcMain.on('minimize-window', () => mainWindow?.minimizeWindow())
+  ipcMain.on('minimize-window', event =>
+    windowFor(event.sender)?.minimizeWindow()
+  )
 
-  ipcMain.on('maximize-window', () => mainWindow?.maximizeWindow())
+  ipcMain.on('maximize-window', event =>
+    windowFor(event.sender)?.maximizeWindow()
+  )
 
-  ipcMain.on('unmaximize-window', () => mainWindow?.unmaximizeWindow())
+  ipcMain.on('unmaximize-window', event =>
+    windowFor(event.sender)?.unmaximizeWindow()
+  )
 
-  ipcMain.on('close-window', () => mainWindow?.closeWindow())
+  ipcMain.on('close-window', event => windowFor(event.sender)?.closeWindow())
 
   ipcMain.handle(
     'is-window-maximized',
-    async () => mainWindow?.isMaximized() ?? false
+    async event => windowFor(event.sender)?.isMaximized() ?? false
   )
 
   ipcMain.handle('get-apple-action-on-double-click', async () =>
     systemPreferences.getUserDefault('AppleActionOnDoubleClick', 'string')
   )
 
-  ipcMain.handle('get-current-window-state', async () =>
-    mainWindow?.getCurrentWindowState()
+  ipcMain.handle('get-current-window-state', async event =>
+    windowFor(event.sender)?.getCurrentWindowState()
   )
 
-  ipcMain.handle('get-current-window-zoom-factor', async () =>
-    mainWindow?.getCurrentWindowZoomFactor()
+  ipcMain.handle('get-current-window-zoom-factor', async event =>
+    windowFor(event.sender)?.getCurrentWindowZoomFactor()
   )
 
-  ipcMain.on('set-window-zoom-factor', (_, zoomFactor: number) =>
-    mainWindow?.setWindowZoomFactor(zoomFactor)
+  ipcMain.on('set-window-zoom-factor', (event, zoomFactor: number) =>
+    windowFor(event.sender)?.setWindowZoomFactor(zoomFactor)
   )
 
   if (__WIN32__) {
@@ -590,7 +637,7 @@ app.on('ready', () => {
    * An event sent by the renderer asking for a copy of the current
    * application menu.
    */
-  ipcMain.on('get-app-menu', () => mainWindow?.sendAppMenu())
+  ipcMain.on('get-app-menu', event => windowFor(event.sender)?.sendAppMenu())
 
   ipcMain.on('show-certificate-trust-dialog', (_, certificate, message) => {
     // This API is only implemented for macOS and Windows right now.
@@ -693,12 +740,14 @@ app.on('ready', () => {
   )
 
   /** An event sent by the renderer asking to select all of the window's contents */
-  ipcMain.on('select-all-window-contents', () =>
-    mainWindow?.selectAllWindowContents()
+  ipcMain.on('select-all-window-contents', event =>
+    windowFor(event.sender)?.selectAllWindowContents()
   )
 
   /** An event sent by the renderer indicating a modal dialog is opened */
-  ipcMain.on('dialog-did-open', () => mainWindow?.dialogDidOpen())
+  ipcMain.on('dialog-did-open', event =>
+    windowFor(event.sender)?.dialogDidOpen()
+  )
 
   /**
    * An event sent by the renderer asking whether the Desktop is in the
@@ -726,7 +775,8 @@ app.on('ready', () => {
    */
   ipcMain.handle(
     'show-save-dialog',
-    async (_, options) => mainWindow?.showSaveDialog(options) ?? null
+    async (event, options) =>
+      windowFor(event.sender)?.showSaveDialog(options) ?? null
   )
 
   /**
@@ -734,7 +784,8 @@ app.on('ready', () => {
    */
   ipcMain.handle(
     'show-open-dialog',
-    async (_, options) => mainWindow?.showOpenDialog(options) ?? null
+    async (event, options) =>
+      windowFor(event.sender)?.showOpenDialog(options) ?? null
   )
 
   /**
@@ -742,12 +793,33 @@ app.on('ready', () => {
    */
   ipcMain.handle(
     'is-window-focused',
-    async () => mainWindow?.isFocused() ?? false
+    async event => windowFor(event.sender)?.isFocused() ?? false
   )
 
   /** An event sent by the renderer asking to focus the main window. */
-  ipcMain.on('focus-window', () => {
-    mainWindow?.focus()
+  ipcMain.on('focus-window', event => {
+    windowFor(event.sender)?.focus()
+  })
+
+  /** A renderer telling us which repository its window is showing. */
+  ipcMain.on('window-repository-changed', (event, repositoryId) => {
+    windowRepositories.set(event.sender.id, repositoryId)
+  })
+
+  /**
+   * Open a repository in its own window, or focus the window that already
+   * has it open. `null` opens a new window on a repository that isn't open
+   * anywhere yet.
+   */
+  ipcMain.on('open-repository-in-new-window', (event, repositoryId) => {
+    openRepositoryInNewWindow(repositoryId, windowFor(event.sender))
+  })
+  ;(app as NodeJS.EventEmitter).on('desktop-new-window', () => {
+    const focused = BrowserWindow.getFocusedWindow()
+    openRepositoryInNewWindow(
+      null,
+      focused === null ? mainWindow : windowFor(focused.webContents)
+    )
   })
 
   ipcMain.on('set-native-theme-source', (_, themeName) => {
@@ -806,10 +878,12 @@ app.on(
   }
 )
 
-function createWindow() {
-  const window = new AppWindow()
+function createWindow(options: IAppWindowOptions = {}) {
+  const window = new AppWindow(options)
+  const isPrimary = window.isPrimary
+  const webContentsId = window.webContents.id
 
-  if (__DEV__) {
+  if (__DEV__ && isPrimary) {
     const {
       default: installExtension,
       REACT_DEVELOPER_TOOLS,
@@ -831,15 +905,29 @@ function createWindow() {
     }
   }
 
+  windows.add(window)
+
   window.onClosed(() => {
-    mainWindow = null
-    if (!__DARWIN__ && !preventQuit) {
+    windows.delete(window)
+    windowRepositories.delete(webContentsId)
+
+    if (window === mainWindow) {
+      // Hand app-wide events over to another open window, if any.
+      mainWindow = windows.values().next().value ?? null
+    }
+
+    if (windows.size === 0 && !__DARWIN__ && !preventQuit) {
       app.quit()
     }
   })
 
   window.onDidLoad(() => {
     window.show()
+
+    if (!isPrimary) {
+      return
+    }
+
     window.sendLaunchTimingStats({
       mainReadyTime: readyTime!,
       loadTime: window.loadTime!,
@@ -855,7 +943,37 @@ function createWindow() {
 
   window.load()
 
-  mainWindow = window
+  if (isPrimary) {
+    mainWindow = window
+  }
+
+  return window
+}
+
+function openRepositoryInNewWindow(
+  repositoryId: number | null,
+  from: AppWindow | null
+) {
+  if (repositoryId !== null) {
+    for (const window of windows) {
+      if (windowRepositories.get(window.webContents.id) === repositoryId) {
+        window.show()
+        window.focus()
+        return
+      }
+    }
+  }
+
+  const openRepositoryIds = [...windowRepositories.values()].filter(
+    (id): id is number => id !== null
+  )
+
+  createWindow({
+    isPrimary: mainWindow === null,
+    repositoryId: repositoryId ?? undefined,
+    excludeRepositoryIds: openRepositoryIds,
+    cascadeFrom: from?.getBounds(),
+  })
 }
 
 /**

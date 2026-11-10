@@ -88,6 +88,18 @@ export const isWindowFocused = invokeProxy('is-window-focused', 0)
 /** Tell the main process to focus on the main window. */
 export const focusWindow = sendProxy('focus-window', 0)
 
+/** Tell the main process which repository this window is showing. */
+export const sendWindowRepositoryChanged = sendProxy(
+  'window-repository-changed',
+  1
+)
+
+/** Open a repository in its own window (or focus the window showing it). */
+export const openRepositoryInNewWindow = sendProxy(
+  'open-repository-in-new-window',
+  1
+)
+
 const _showItemInFolder = invokeProxy('show-item-in-folder', 1)
 const confirmRevealDirectory = invokeProxy('confirm-reveal-directory', 0)
 

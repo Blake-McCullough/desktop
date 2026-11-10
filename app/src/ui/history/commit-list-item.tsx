@@ -24,6 +24,11 @@ import {
   DropTargetType,
 } from '../../models/drag-drop'
 import classNames from 'classnames'
+import { shell } from '../../lib/app-shell'
+import {
+  getTagAppearance,
+  onTagColorRulesChanged,
+} from '../../lib/tag-color-rules'
 import { Account } from '../../models/account'
 import { Emoji } from '../../lib/emoji'
 import { enableAccessibleListToolTips } from '../../lib/feature-flag'
@@ -83,6 +88,7 @@ export class CommitListItem extends React.PureComponent<
   ICommitListItemState
 > {
   private gitLabPipelineStatusSubscription: Disposable | null = null
+  private tagColorRulesSubscription: Disposable | null = null
 
   public constructor(props: ICommitProps) {
     super(props)
@@ -98,10 +104,15 @@ export class CommitListItem extends React.PureComponent<
 
   public componentDidMount() {
     this.subscribeToGitLabPipeline(this.props)
+    this.tagColorRulesSubscription = onTagColorRulesChanged(() =>
+      this.forceUpdate()
+    )
   }
 
   public componentWillUnmount() {
     this.unsubscribeFromGitLabPipeline()
+    this.tagColorRulesSubscription?.dispose()
+    this.tagColorRulesSubscription = null
   }
 
   /**
@@ -280,27 +291,84 @@ export class CommitListItem extends React.PureComponent<
     return null
   }
 
+  private onPipelineClick = (event: React.MouseEvent<HTMLElement>) => {
+    const url = this.state.gitLabPipeline?.webUrl
+    if (url === undefined) {
+      return
+    }
+    // Don't also start a drag or change the selection.
+    event.stopPropagation()
+    event.preventDefault()
+    shell.openExternal(url)
+  }
+
   private renderGitLabPipelineIndicator() {
     const pipeline = this.state.gitLabPipeline
     if (pipeline === undefined || pipeline === null) {
       return null
     }
 
-    const color = getJobStatusColor(pipeline.status)
+    const visible = pipeline.jobs.slice(0, MaxCommitJobDots)
+    const hidden = pipeline.jobs.length - visible.length
     const tooltip = [
-      `Pipeline ${formatStatus(pipeline.status)}`,
-      ...pipeline.jobs.map(job => `${job.name}: ${formatStatus(job.status)}`),
+      `Pipeline ${formatStatus(pipeline.status)}${
+        pipeline.webUrl !== undefined ? ' — click to open in GitLab' : ''
+      }`,
+      ...pipeline.jobs.map(
+        job =>
+          `${job.stage ? `${job.stage} › ` : ''}${job.name}: ${formatStatus(
+            job.status
+          )}`
+      ),
     ].join('\n')
 
-    return (
+    const dots = (
       <TooltippedContent
-        tagName="div"
-        className="gitlab-pipeline-indicator"
+        tagName="span"
+        className="gitlab-pipeline-dots"
         tooltip={tooltip}
         disabled={enableAccessibleListToolTips()}
       >
-        <span className={`gitlab-job-dot gitlab-job-dot-${color}`} />
+        {visible.length === 0 ? (
+          <span
+            className={`gitlab-job-dot gitlab-job-dot-${getJobStatusColor(
+              pipeline.status
+            )}`}
+          />
+        ) : (
+          visible.map(job => (
+            <span
+              key={job.id}
+              className={classNames(
+                'gitlab-job-dot',
+                `gitlab-job-dot-${getJobStatusColor(job.status)}`,
+                {
+                  running: job.status === 'running',
+                  manual: job.status === 'manual',
+                }
+              )}
+            />
+          ))
+        )}
+        {hidden > 0 && <span className="gitlab-job-more">+{hidden}</span>}
       </TooltippedContent>
+    )
+
+    if (pipeline.webUrl === undefined) {
+      return <div className="gitlab-pipeline-indicator">{dots}</div>
+    }
+
+    return (
+      <button
+        type="button"
+        className="gitlab-pipeline-indicator clickable"
+        aria-label={`Pipeline ${formatStatus(pipeline.status)}. Open in GitLab`}
+        onClick={this.onPipelineClick}
+        onMouseDown={stopPropagation}
+        tabIndex={-1}
+      >
+        {dots}
+      </button>
     )
   }
 
@@ -359,19 +427,56 @@ function renderRelativeTime(date: Date, preferAbsoluteDates: boolean) {
   )
 }
 
+/** How many job dots to show per commit before collapsing into "+N". */
+const MaxCommitJobDots = 6
+
+const stopPropagation = (event: React.MouseEvent<HTMLElement>) =>
+  event.stopPropagation()
+
+/** How many tags to show inline before collapsing into "+N". */
+const MaxVisibleTags = 2
+
 function renderCommitListItemTags(tags: ReadonlyArray<string>) {
   if (tags.length === 0) {
     return null
   }
-  const [firstTag] = tags
+
+  // Tags matching a color rule come first so they're the ones that show.
+  const withAppearance = tags.map(tag => ({
+    tag,
+    appearance: getTagAppearance(tag),
+  }))
+  const ordered = [
+    ...withAppearance.filter(t => t.appearance !== null),
+    ...withAppearance.filter(t => t.appearance === null),
+  ]
+  const visible = ordered.slice(0, MaxVisibleTags)
+  const hidden = ordered.length - visible.length
+
   return (
-    <span className="tag-indicator">
-      <span className="tag-name" key={firstTag}>
-        {firstTag}
-      </span>
-      {tags.length > 1 && (
-        <span key={tags.length} className="tag-indicator-more" />
-      )}
-    </span>
+    <TooltippedContent
+      tagName="span"
+      className="tag-indicator"
+      tooltip={tags.join('\n')}
+      disabled={enableAccessibleListToolTips()}
+    >
+      {visible.map(({ tag, appearance }) => (
+        <span
+          className={classNames('tag-name', { colored: appearance !== null })}
+          key={tag}
+          style={
+            appearance !== null
+              ? {
+                  backgroundColor: appearance.background,
+                  color: appearance.foreground,
+                }
+              : undefined
+          }
+        >
+          {tag}
+        </span>
+      ))}
+      {hidden > 0 && <span className="tag-indicator-count">+{hidden}</span>}
+    </TooltippedContent>
   )
 }

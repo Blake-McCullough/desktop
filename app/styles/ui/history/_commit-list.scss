@@ -171,6 +171,28 @@
         border-radius: 0 var(--border-radius) var(--border-radius) 0;
         background: var(--list-item-badge-background-color);
       }
+
+      .tag-name + .tag-name {
+        margin-left: 3px;
+      }
+
+      // Tags matched by a rule in Preferences → Tag colors.
+      .tag-name.colored {
+        padding: 0 6px;
+        border-radius: var(--border-radius);
+        font-weight: var(--font-weight-semibold);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.18);
+        flex: 0 1 auto;
+      }
+
+      .tag-indicator-count {
+        flex: 0 0 auto;
+        margin-left: 3px;
+        padding: 0 4px;
+        border-radius: 8px;
+        background: var(--list-item-badge-background-color);
+        font-size: var(--font-size-xs);
+      }
     }
 
     .unpushed-indicator {

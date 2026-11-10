@@ -66,6 +66,8 @@ describe('IPC channel contract', () => {
     'set-native-theme-source',
     'update-window-background-color',
     'focus-window',
+    'window-repository-changed',
+    'open-repository-in-new-window',
     'notification-event',
     'set-window-zoom-factor',
     'show-installing-update',
