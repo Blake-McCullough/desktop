@@ -421,14 +421,20 @@
     &.stale {
       opacity: 0.55;
     }
+  }
 
-    // Showing the branch's latest pipeline because HEAD has none.
-    &.branch-fallback {
-      opacity: 0.7;
-      padding: 1px 3px;
-      border: 1px dashed var(--box-border-color);
-      border-radius: 6px;
-    }
+  // A new commit was pushed and GitLab hasn't created its pipeline yet.
+  .gitlab-pipeline-awaiting {
+    width: 8px;
+    height: 8px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    border: 1.5px dashed var(--text-secondary-color);
+    animation: repositories-sidebar-spin 2.4s linear infinite;
+  }
+
+  .repositories-sidebar-item.selected .gitlab-pipeline-awaiting {
+    border-color: var(--box-selected-active-text-color);
   }
 
   .gitlab-job-dot {

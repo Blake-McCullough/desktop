@@ -131,6 +131,26 @@ export class RepositoriesSidebarRow extends React.PureComponent<IRepositoriesSid
     const { pipeline, isFetching, error } = state
 
     if (pipeline === null || pipeline.jobs.length === 0) {
+      // Just pushed and GitLab hasn't created the pipeline yet. Show that
+      // (with no jobs or Run buttons) rather than an older pipeline.
+      if (
+        state.awaitingPipeline &&
+        state.pushedSha !== null &&
+        error === null
+      ) {
+        const short = state.pushedSha.substring(0, 7)
+        return (
+          <div className="gitlab-pipeline-status">
+            <span
+              className="gitlab-pipeline-awaiting"
+              title={`Waiting for GitLab to start a pipeline for ${short}, the latest pushed commit`}
+              role="img"
+              aria-label={`Waiting for a pipeline for ${short}`}
+            />
+          </div>
+        )
+      }
+
       if (error !== null) {
         return (
           <div className="gitlab-pipeline-status">
@@ -162,13 +182,13 @@ export class RepositoriesSidebarRow extends React.PureComponent<IRepositoriesSid
       <div
         className={classNames('gitlab-pipeline-status', {
           stale: error !== null,
-          'branch-fallback': pipeline.fallbackRef !== undefined,
         })}
         title={
           error ??
-          (pipeline.fallbackRef !== undefined
-            ? `No pipeline for the checked-out commit — showing the latest pipeline on ${pipeline.fallbackRef}`
-            : undefined)
+          `Pipeline for ${pipeline.sha.substring(
+            0,
+            7
+          )}, the latest pushed commit`
         }
       >
         {visible.map(this.renderJob)}
