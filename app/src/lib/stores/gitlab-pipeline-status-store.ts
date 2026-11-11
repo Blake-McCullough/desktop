@@ -25,9 +25,20 @@ import {
 /** How many repositories to refresh concurrently. */
 const RefreshConcurrency = 4
 
-/** Shortest and longest time between polling ticks. */
+/**
+ * Shortest and longest time between polling ticks. A tick only reads local
+ * refs for repositories that aren't due, so it's cheap; a new push is
+ * noticed within a minute.
+ */
 const MinPollIntervalMs = 30 * 1000
-const MaxPollIntervalMs = 3 * 60 * 1000
+const MaxPollIntervalMs = 60 * 1000
+
+/**
+ * After a new commit is pushed, GitLab can take a little while to create
+ * its pipeline. For this long we show "waiting for pipeline" and check
+ * often, instead of treating it as a commit without CI.
+ */
+const AwaitPipelineWindowMs = 15 * 60 * 1000
 
 /**
  * How often each repository is re-checked when its HEAD hasn't moved: often
@@ -62,8 +73,19 @@ const CommitNoPipelineTtlMs = 15 * 60 * 1000
 
 /** Pipeline state for one repository's current HEAD. */
 export interface IRepositoryPipelineState {
-  /** The latest pipeline for HEAD, or `null` if HEAD has none. */
+  /**
+   * The pipeline for the latest pushed commit (the tip of the branch's
+   * upstream), or `null` if it has none (yet).
+   */
   readonly pipeline: IGitLabPipelineInfo | null
+  /** The latest pushed commit, or `null` if the branch isn't published. */
+  readonly pushedSha: string | null
+  /**
+   * The pushed commit is new and GitLab hasn't created its pipeline yet.
+   * Older pipelines are deliberately not shown, so a manual job can't be
+   * run against the wrong commit.
+   */
+  readonly awaitingPipeline: boolean
   /** Whether a refresh is in flight. */
   readonly isFetching: boolean
   /** The last error, if the most recent refresh failed. */
@@ -149,9 +171,13 @@ class GitLabPipelineStatusStore {
   private readonly accessibleProjects = new Set<string>()
   private readonly inaccessibleProjects = new Map<string, number>()
 
-  /** Per repository: when it's next due a check, and the HEAD last seen. */
+  /**
+   * Per repository: when it's next due a check, the pushed commit last
+   * seen, and when that commit was first seen.
+   */
   private readonly nextDue = new Map<number, number>()
-  private readonly lastHeadSha = new Map<number, string>()
+  private readonly lastPushedSha = new Map<number, string>()
+  private readonly pushedShaSeenAt = new Map<number, number>()
   private readonly hostProbes = new Map<
     string,
     { readonly result: Promise<boolean>; readonly expiresAt: number }
@@ -182,7 +208,8 @@ class GitLabPipelineStatusStore {
         this.accessibleProjects.clear()
         this.inaccessibleProjects.clear()
         this.nextDue.clear()
-        this.lastHeadSha.clear()
+        this.lastPushedSha.clear()
+        this.pushedShaSeenAt.clear()
         this.statuses = new Map()
         this.scheduleEmit()
         this.pollNow()
@@ -386,6 +413,8 @@ class GitLabPipelineStatusStore {
   ) {
     const previous = this.statuses.get(repositoryId) ?? {
       pipeline: null,
+      pushedSha: null,
+      awaitingPipeline: false,
       isFetching: false,
       error: null,
       fetchedAt: 0,
@@ -424,35 +453,65 @@ class GitLabPipelineStatusStore {
         return
       }
 
-      const sha = await this.getHeadSha(repository)
+      // Only the latest *pushed* commit counts: local commits have no
+      // pipeline, and showing an older pipeline instead would put a Run
+      // button for the wrong commit in front of you.
+      const sha = await this.getPushedSha(repository)
       if (sha === null) {
+        this.lastPushedSha.delete(repository.id)
+        if (this.statuses.get(repository.id)?.pushedSha != null) {
+          this.setRepositoryState(repository.id, {
+            pipeline: null,
+            pushedSha: null,
+            awaitingPipeline: false,
+            error: null,
+          })
+        }
         return
       }
 
-      // Nothing to do until this repository is due again, unless its HEAD
-      // moved (new commit, pull, branch switch).
-      const headMoved = this.lastHeadSha.get(repository.id) !== sha
+      // Nothing to do until this repository is due again, unless a new
+      // commit was pushed (or pulled, or the branch switched).
+      const pushedMoved = this.lastPushedSha.get(repository.id) !== sha
       const due = this.nextDue.get(repository.id) ?? 0
-      if (!force && !headMoved && Date.now() < due) {
+      if (!force && !pushedMoved && Date.now() < due) {
         return
       }
-      this.lastHeadSha.set(repository.id, sha)
+      if (pushedMoved) {
+        this.lastPushedSha.set(repository.id, sha)
+        this.pushedShaSeenAt.set(repository.id, Date.now())
+      }
 
       const previous = this.statuses.get(repository.id)
       const wasActive =
         previous?.pipeline != null && isActiveStatus(previous.pipeline.status)
+      const recentlyPushed =
+        Date.now() - (this.pushedShaSeenAt.get(repository.id) ?? 0) <
+        AwaitPipelineWindowMs
 
       markedFetching = true
-      this.setRepositoryState(repository.id, { isFetching: true })
+      this.setRepositoryState(repository.id, {
+        isFetching: true,
+        // Never keep showing the previous commit's jobs once it changed.
+        ...(pushedMoved
+          ? { pipeline: null, pushedSha: sha, awaitingPipeline: true }
+          : {}),
+      })
 
-      const branch = await this.getHeadBranch(repository)
       const pipeline = await this.resolver.resolve(project, sha, token, {
-        branch,
-        maxAgeMs: force || wasActive ? ActiveMaxAgeMs : IdleMaxAgeMs,
+        maxAgeMs:
+          pushedMoved || force
+            ? 0
+            : wasActive || recentlyPushed
+            ? ActiveMaxAgeMs
+            : IdleMaxAgeMs,
         allowShaLookup: true,
       })
+      const awaitingPipeline = pipeline === null && recentlyPushed
       this.setRepositoryState(repository.id, {
         pipeline,
+        pushedSha: sha,
+        awaitingPipeline,
         isFetching: false,
         error: null,
         fetchedAt: Date.now(),
@@ -461,7 +520,9 @@ class GitLabPipelineStatusStore {
       this.nextDue.set(
         repository.id,
         Date.now() +
-          (pipeline === null
+          (awaitingPipeline
+            ? ActiveRecheckMs
+            : pipeline === null
             ? NoPipelineRecheckMs
             : isActiveStatus(pipeline.status)
             ? ActiveRecheckMs
@@ -469,9 +530,8 @@ class GitLabPipelineStatusStore {
       )
 
       // Keep the per-commit cache in sync so the history list doesn't need
-      // to ask again for HEAD (unless it's the branch's pipeline rather
-      // than this commit's).
-      if (pipeline === null || pipeline.fallbackRef === undefined) {
+      // to ask again for this commit.
+      if (pipeline !== null) {
         this.storeCommitResult(this.commitKey(repository, sha), pipeline)
       }
     } catch (e) {
@@ -625,31 +685,19 @@ class GitLabPipelineStatusStore {
     return project
   }
 
-  /** The checked-out branch name, or `null` when HEAD is detached. */
-  private async getHeadBranch(repository: Repository): Promise<string | null> {
+  /**
+   * The latest pushed commit: the tip of the current branch's upstream, or
+   * `null` when the branch isn't published (or HEAD is detached).
+   */
+  private async getPushedSha(repository: Repository): Promise<string | null> {
     try {
       const result = await git(
-        ['symbolic-ref', '--short', '-q', 'HEAD'],
+        ['rev-parse', '--verify', '--quiet', '@{upstream}^{commit}'],
         repository.path,
-        'gitlabPipelineHeadBranch',
-        { successExitCodes: new Set([0, 1]) }
+        'gitlabPipelinePushedSha',
+        { successExitCodes: new Set([0, 1, 128]) }
       )
-      const branch = result.stdout.trim()
-      return branch.length > 0 ? branch : null
-    } catch {
-      return null
-    }
-  }
-
-  private async getHeadSha(repository: Repository): Promise<string | null> {
-    try {
-      const result = await git(
-        ['rev-parse', '--verify', '--quiet', 'HEAD'],
-        repository.path,
-        'gitlabPipelineHeadSha',
-        { successExitCodes: new Set([0, 1]) }
-      )
-      const sha = result.stdout.trim()
+      const sha = result.exitCode === 0 ? result.stdout.trim() : ''
       return sha.length > 0 ? sha : null
     } catch {
       return null
@@ -671,6 +719,24 @@ class GitLabPipelineStatusStore {
     const project = await this.resolveProject(repository)
     if (project === null) {
       throw new Error(`'${repository.name}' isn't a GitLab project.`)
+    }
+
+    // Only ever run jobs from the latest pushed commit's pipeline. If a new
+    // commit has been pushed since the sidebar was drawn, refuse and refresh
+    // rather than run a job for an older commit.
+    const state = this.statuses.get(repository.id)
+    const pushedSha = await this.getPushedSha(repository)
+    const job = state?.pipeline?.jobs.find(j => j.id === jobId)
+    if (
+      job === undefined ||
+      pushedSha === null ||
+      state?.pushedSha !== pushedSha ||
+      state.pipeline?.sha !== pushedSha
+    ) {
+      this.refresh([repository], { force: true })
+      throw new Error(
+        "That job isn't from the latest pushed commit's pipeline. The status is being refreshed — try again in a moment."
+      )
     }
 
     try {

@@ -14,8 +14,10 @@ function pipelineWith(
   jobs: ReadonlyArray<IGitLabJobStatus>
 ): IRepositoryPipelineState {
   return {
+    pushedSha: 'abc1234def',
+    awaitingPipeline: false,
     pipeline: {
-      sha: 'abc',
+      sha: 'abc1234def',
       status: 'running',
       webUrl: 'https://gitlab.com/a/b/-/pipelines/1',
       jobs,
@@ -114,6 +116,21 @@ describe('RepositoriesSidebarRow', () => {
     const more = screen.getByText('+3')
     fireEvent.click(more)
     assert.deepEqual(opened, ['https://gitlab.com/a/b/-/pipelines/1'])
+  })
+
+  it("waits for the pushed commit's pipeline instead of showing an older one", () => {
+    const { container } = renderRow({
+      pipeline: null,
+      pushedSha: 'abc1234def',
+      awaitingPipeline: true,
+      isFetching: false,
+      error: null,
+      fetchedAt: 1,
+    })
+
+    assert.ok(container.querySelector('.gitlab-pipeline-awaiting'))
+    assert.equal(container.querySelector('.gitlab-job-dot'), null)
+    assert.equal(container.querySelector('.gitlab-job-run-button'), null)
   })
 
   it('shows nothing for repositories without pipeline state', () => {

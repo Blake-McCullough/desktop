@@ -261,6 +261,25 @@ export class RepositoriesSidebar extends React.PureComponent<
       this.scheduleRepositoriesRefresh()
     }
 
+    // After a push (or pull/fetch) a repository's ahead/behind changes;
+    // check its latest pushed commit right away instead of at the next tick.
+    if (
+      prevProps.localRepositoryStateLookup !==
+      this.props.localRepositoryStateLookup
+    ) {
+      const changed = this.getPollableRepositories().filter(r => {
+        const before = prevProps.localRepositoryStateLookup.get(r.id)
+        const after = this.props.localRepositoryStateLookup.get(r.id)
+        return (
+          before?.aheadBehind?.ahead !== after?.aheadBehind?.ahead ||
+          before?.aheadBehind?.behind !== after?.aheadBehind?.behind
+        )
+      })
+      if (changed.length > 0) {
+        gitLabPipelineStatusStore.refresh(changed)
+      }
+    }
+
     if (
       prevProps.selectedRepositoryTipSha !==
         this.props.selectedRepositoryTipSha &&
