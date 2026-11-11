@@ -1,0 +1,84 @@
+name: Release (custom build)
+
+# Builds the Windows installer for this custom build and attaches it to a
+# GitHub release. Runs when a tag starting with "v" is pushed, or by hand
+# from the Actions tab.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and release (e.g. v3.6.11-custom1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: custom-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      # GitHub signs its own builds with a certificate forks don't have.
+      DESKTOP_SKIP_CODE_SIGNING: '1'
+    steps:
+      - name: Check out ${{ env.TAG }}
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Update npm
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build:prod
+        env:
+          NODE_OPTIONS: --max_old_space_size=8192
+
+      - name: Package
+        run: npm run package
+
+      - name: Collect release files
+        id: files
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File | Format-Table Name, Length
+          $files = Get-ChildItem dist -File |
+            Where-Object { $_.Name -match '\.(exe|msi|nupkg)$' -or $_.Name -eq 'RELEASES' }
+          if ($files.Count -eq 0) { throw 'No installer files were produced' }
+          New-Item -ItemType Directory -Force release | Out-Null
+          $files | Copy-Item -Destination release
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:TAG --verify-tag `
+              --title "GitHub Desktop Custom $env:TAG" `
+              --notes "Windows installer for GitHub Desktop Custom $env:TAG. Run GitHubDesktopCustomSetup-x64.exe. The installer isn't code-signed, so Windows SmartScreen will warn you: choose More info, then Run anyway. See the README for what's included."
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to create the release' }
+          }
+          gh release upload $env:TAG (Get-ChildItem release -File).FullName --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to upload release files' }
