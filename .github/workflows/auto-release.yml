@@ -68,8 +68,6 @@ jobs:
 
       - name: Build
         run: npm run build:prod
-        env:
-          NODE_OPTIONS: --max_old_space_size=8192
 
       - name: Package
         run: npm run package
