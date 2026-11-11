@@ -1,128 +1,131 @@
+# GitHub Desktop Custom
 
-# This is my custom version with grouping, colours and gitlab ci/cd intergration
+A customised build of [GitHub Desktop](https://github.com/desktop/desktop)
+with repository groups, GitLab CI/CD pipeline status, a Fork-style history
+graph, and other workflow improvements. It installs as a separate app
+(**GitHub Desktop Custom**), so it can sit alongside the official GitHub
+Desktop.
 
-Custom additions on top of GitHub Desktop:
+**[Download the latest release](https://github.com/Blake-McCullough/desktop/releases/latest)**
+— run `GitHubDesktopCustomSetup-x64.exe`.
 
-- **Repositories sidebar** — always visible, resizable, filterable, with
-  colored groups (drag and drop to organize).
-- **Import / export** — the sidebar's `+` menu can export every repository
-  (location, remotes, alias, group and group color) to a JSON file and import
-  it again, remapping the base folder and cloning anything that's missing.
-- **GitLab CI/CD** — pipeline status per repository and per commit. Configure
-  a token (and any self-hosted instances) in Preferences → GitLab.
-- **Crash recovery** — the window reloads itself if the renderer crashes
-  instead of going blank.
+> The installer isn't code-signed, so Windows SmartScreen will warn you the
+> first time. Choose **More info → Run anyway**.
 
-Build: `npm ci`, then `npm run build:prod && npm run package` (Node
-version in `.node-version`).
+## Features
 
-# [GitHub Desktop](https://desktop.github.com)
+### Repositories sidebar
 
-[GitHub Desktop](https://desktop.github.com/) is an open-source [Electron](https://www.electronjs.org/)-based
-GitHub app. It is written in [TypeScript](https://www.typescriptlang.org) and
-uses [React](https://reactjs.org/).
+- An always-visible, resizable, collapsible list of your repositories.
+- **Groups with colours**: create groups, drag repositories between them,
+  and give each group a colour.
+- **Filter box** to find a repository quickly (Enter opens the first match).
+- Keyboard accessible; collapse or expand all groups from a group's
+  right-click menu.
 
-<picture>
-  <source
-    srcset="https://user-images.githubusercontent.com/634063/202742848-63fa1488-6254-49b5-af7c-96a6b50ea8af.png"
-    media="(prefers-color-scheme: dark)"
-  />
-  <img
-    width="1072"
-    src="https://user-images.githubusercontent.com/634063/202742985-bb3b3b94-8aca-404a-8d8a-fd6a6f030672.png"
-    alt="A screenshot of the GitHub Desktop application showing changes being viewed and committed with two attributed co-authors"
-  />
-</picture>
+### Import and export repositories
 
-## Where can I get it?
+From the sidebar's **+** menu:
 
-Download the official installer for your operating system:
+- **Export repositories…** saves every repository's location, remotes,
+  alias, group and group colour to a JSON file.
+- **Import repositories…** reads that file on another computer (or after a
+  reinstall). You can choose a new base folder — the folder structure below
+  it is kept — and the import adds repositories already on disk, clones the
+  missing ones, and recreates your groups.
 
- - [macOS](https://central.github.com/deployments/desktop/desktop/latest/darwin)
- - [macOS (Apple silicon)](https://central.github.com/deployments/desktop/desktop/latest/darwin-arm64)
- - [Windows](https://central.github.com/deployments/desktop/desktop/latest/win32)
- - [Windows machine-wide install](https://central.github.com/deployments/desktop/desktop/latest/win32?format=msi)
+### GitLab CI/CD pipelines
 
-Linux is not officially supported; however, you can find installers created for Linux from a fork of GitHub Desktop in the [Community Releases](https://github.com/desktop/desktop#community-releases) section.
+Set a personal access token in **Preferences → GitLab** (`read_api` to view,
+`api` to also run manual jobs).
 
-### Beta Channel
+- **Sidebar**: a dot per job for each repository's current commit; running
+  jobs pulse, and clicking a dot opens the job in GitLab. Manual jobs show a
+  **▶ Run** button. If the checked-out commit has no pipeline yet, the
+  branch's latest pipeline is shown with a dashed outline.
+- **History**: a dot per job for every commit; click to open the pipeline.
+- **Self-hosted GitLab**: hosts with "gitlab" in the name are detected
+  automatically, other servers are detected by asking them, and you can list
+  instances (including ones on a sub path) in Preferences.
+- **Rate-limit friendly**: one request per project lists recent pipelines
+  for every repository and commit, jobs are only re-fetched when a pipeline
+  changes, and idle repositories are checked every 5–10 minutes. If GitLab
+  rate limits anyway, updates pause until GitLab's reset time and the
+  sidebar says when they'll resume.
+- **Test token** in Preferences shows which user and scopes the token has.
 
-Want to test out new features and get fixes before everyone else? Install the
-beta channel to get access to early builds of Desktop:
+### History graph
 
- - [macOS](https://central.github.com/deployments/desktop/desktop/latest/darwin?env=beta)
- - [macOS (Apple silicon)](https://central.github.com/deployments/desktop/desktop/latest/darwin-arm64?env=beta)
- - [Windows](https://central.github.com/deployments/desktop/desktop/latest/win32?env=beta)
- - [Windows (ARM64)](https://central.github.com/deployments/desktop/desktop/latest/win32-arm64?env=beta)
+**View → History graph** (`Ctrl+Alt+G`), or right-click a repository →
+**View history graph…**
 
-The release notes for the latest beta versions are available [here](https://desktop.github.com/release-notes/?env=beta).
+- All branches (or just the current one) drawn as coloured lanes, with
+  merges and branch points connected — similar to Fork.
+- Branch labels in their lane's colour, a ✓ on the checked-out branch, a
+  cloud when a branch matches its remote, plus remote-only branches and
+  tags.
+- Commits that aren't on the current branch are dimmed.
+- Search by message, author, SHA, branch or tag; keyboard navigation.
+- Select a commit to see its full message and changed files.
 
-### Past Releases
-You can find past releases at https://desktop.githubusercontent.com. After installation of a past version, the auto update functionality will attempt to download the latest version. 
+### Tag colours
 
-### Community Releases
+**Preferences → Tag colors** maps regular expressions to colours, e.g.
+`^Pushed_To_Test` → green. Matching tags are highlighted in History and the
+history graph.
 
-There are several community-supported package managers that can be used to
-install GitHub Desktop:
- - Windows users can install using [winget](https://docs.microsoft.com/en-us/windows/package-manager/winget/) `c:\> winget install github-desktop` or [Chocolatey](https://chocolatey.org/) `c:\> choco install github-desktop`
- - macOS users can install using [Homebrew](https://brew.sh/) package manager:
-      `$ brew install --cask github`
+### Worktrees
 
-Installers for various Linux distributions can be found on the
-[`shiftkey/desktop`](https://github.com/shiftkey/desktop) fork.
+Right-click a repository → **View worktrees…** to see every worktree with
+its branch, latest commit, uncommitted changes and ahead/behind state, and
+to switch to, open, or remove them.
 
-## Is GitHub Desktop right for me? What are the primary areas of focus?
+### Reliability
 
-[This document](https://github.com/desktop/desktop/blob/development/docs/process/what-is-desktop.md) describes the focus of GitHub Desktop and who the product is most useful for.
+- If the window's renderer crashes (for example after the computer sleeps),
+  the window reloads itself instead of going blank.
+- If the app stops responding, you're offered a reload.
 
-## I have a problem with GitHub Desktop
+## Building it yourself
 
-Note: The [GitHub Desktop Code of Conduct](https://github.com/desktop/desktop/blob/development/CODE_OF_CONDUCT.md) applies in all interactions relating to the GitHub Desktop project.
+Requirements (Windows):
 
-First, please search the [open issues](https://github.com/desktop/desktop/issues?q=is%3Aopen)
-and [closed issues](https://github.com/desktop/desktop/issues?q=is%3Aclosed)
-to see if your issue hasn't already been reported (it may also be fixed).
+- [Node.js](https://nodejs.org/) — the version in [`.node-version`](./.node-version)
+- npm 11.17 or newer: `npm install -g npm@latest`
+- Python 3
+- Visual Studio 2022 Build Tools with **Desktop development with C++**
 
-There is also a list of [known issues](https://github.com/desktop/desktop/blob/development/docs/known-issues.md)
-that are being tracked against Desktop, and some of these issues have workarounds.
+```powershell
+git clone --recurse-submodules https://github.com/Blake-McCullough/desktop.git
+cd desktop
+npm ci
+npm run build:prod
+npm run package
+```
 
-If you can't find an issue that matches what you're seeing, open a [new issue](https://github.com/desktop/desktop/issues/new/choose),
-choose the right template and provide us with enough information to investigate
-further.
+The installer is written to `dist\GitHubDesktopCustomSetup-x64.exe`, and the
+unpacked app to `dist\GitHubDesktopCustom-win32-x64\GitHubDesktopCustom.exe`.
 
-## The issue I reported isn't fixed yet. What can I do?
+Settings and repository lists live in `%APPDATA%\GitHub Desktop Custom`, so
+reinstalling or upgrading keeps them.
 
-If nobody has responded to your issue in a few days, you're welcome to respond to it with a friendly ping in the issue. Please do not respond more than a second time if nobody has responded. The GitHub Desktop maintainers are constrained in time and resources, and diagnosing individual configurations can be difficult and time consuming. While we'll try to at least get you pointed in the right direction, we can't guarantee we'll be able to dig too deeply into any one person's issue.
+## Releasing
 
-## How can I contribute to GitHub Desktop?
+Push a tag starting with `v` (for example `v3.6.11-custom1`) and the
+**Release (custom build)** workflow builds the Windows installer on GitHub
+Actions and attaches it to a GitHub release for that tag. It can also be run
+by hand from the Actions tab.
 
-The [CONTRIBUTING.md](./.github/CONTRIBUTING.md) document will help you get setup and
-familiar with the source. The [documentation](docs/) folder also contains more
-resources relevant to the project.
+## Keeping up with upstream
 
-If you're looking for something to work on, check out the [help wanted](https://github.com/desktop/desktop/issues?q=is%3Aissue+is%3Aopen+label%3A%22help%20wanted%22) label.
+```sh
+git remote add upstream https://github.com/desktop/desktop.git
+git fetch upstream
+git merge upstream/development
+```
 
-## Building Desktop
+## Credits and licence
 
-To setup your development environment for building Desktop, check out: [`setup.md`](./docs/contributing/setup.md).
-
-## More Resources
-
-See [desktop.github.com](https://desktop.github.com) for more product-oriented
-information about GitHub Desktop.
-
-See our [getting started documentation](https://docs.github.com/en/desktop/overview/getting-started-with-github-desktop) for more information on how to set up, authenticate, and configure GitHub Desktop.
-
-## License
-
-**[MIT](LICENSE)**
-
-The MIT license grant is not for GitHub's trademarks, which include the logo
-designs. GitHub reserves all trademark and copyright rights in and to all
-GitHub trademarks. GitHub's logos include, for instance, the stylized
-Invertocat designs that include "logo" in the file title in the following
-folder: [logos](app/static/logos).
-
-GitHub® and its stylized versions and the Invertocat mark are GitHub's
-Trademarks or registered Trademarks. When using GitHub's logos, be sure to
-follow the GitHub [logo guidelines](https://github.com/logos).
+Based on [GitHub Desktop](https://github.com/desktop/desktop) by GitHub,
+released under the [MIT licence](./LICENSE). This build isn't affiliated
+with or supported by GitHub.
