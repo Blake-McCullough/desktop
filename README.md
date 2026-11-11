@@ -111,10 +111,15 @@ reinstalling or upgrading keeps them.
 
 ## Releasing
 
-Push a tag starting with `v` (for example `v3.6.11-custom1`) and the
-**Release (custom build)** workflow builds the Windows installer on GitHub
-Actions and attaches it to a GitHub release for that tag. It can also be run
-by hand from the Actions tab.
+1. Bump `version` in [`app/package.json`](./app/package.json) (for example
+   `3.6.11-custom2`) and push it.
+2. On GitHub, go to **Releases → Draft a new release**, create a new tag
+   (`v3.6.11-custom2`) on `main`, and **Publish release**.
+
+The **Release (custom build)** workflow then builds the Windows installer on
+GitHub Actions and attaches it to the release, usually within 20–30
+minutes. To rebuild an existing release, run the workflow from the
+**Actions** tab and enter its tag.
 
 ## Keeping up with upstream
 
