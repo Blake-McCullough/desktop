@@ -111,15 +111,22 @@ reinstalling or upgrading keeps them.
 
 ## Releasing
 
-1. Bump `version` in [`app/package.json`](./app/package.json) (for example
-   `3.6.11-custom2`) and push it.
-2. On GitHub, go to **Releases → Draft a new release**, create a new tag
-   (`v3.6.11-custom2`) on `main`, and **Publish release**.
+Every push to `main` is released automatically. The **Auto release (main)**
+workflow builds the Windows installer on GitHub Actions and publishes it as a
+new GitHub release, usually within 20–30 minutes:
 
-The **Release (custom build)** workflow then builds the Windows installer on
-GitHub Actions and attaches it to the release, usually within 20–30
-minutes. To rebuild an existing release, run the workflow from the
-**Actions** tab and enter its tag.
+- Version: the `version` in [`app/package.json`](./app/package.json) plus a
+  build number, e.g. `3.6.11-custom1-b00042` (tag `v3.6.11-custom1-b00042`).
+- Release notes list the commits since the previous release.
+- Changes that only touch Markdown files or `docs/` don't trigger a release.
+- If several commits are pushed close together, only the newest is built.
+
+To start a new version series (for example after merging a new upstream
+release), change `version` in `app/package.json`.
+
+You can also publish a release by hand — **Releases → Draft a new release**
+with a new tag — and the **Release (custom build)** workflow will build and
+attach the installer to it.
 
 ## Keeping up with upstream
 
