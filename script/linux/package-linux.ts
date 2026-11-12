@@ -88,6 +88,8 @@ sha256sums=('${sha256}')
 package() {
   install -d "$pkgdir/opt/${LinuxAppId}"
   cp -a "$srcdir/${LinuxAppId}/." "$pkgdir/opt/${LinuxAppId}/"
+  # Must be enterable by every user, not just root.
+  chmod 755 "$pkgdir/opt/${LinuxAppId}"
 
   # Installed as root by pacman, so Chromium's setuid sandbox helper can be
   # set up properly (an AppImage or tarball can't do this).
@@ -177,6 +179,32 @@ function hardLinkDuplicates(dir: string) {
   )
 }
 
+/**
+ * Make everything readable (and folders enterable) by all users. Electron
+ * Packager creates the app folder with mode 700; copied as-is, that made
+ * /opt/github-desktop-custom root-only, so launching it as a normal user
+ * failed with "could not find the program".
+ */
+function makeWorldReadable(dir: string) {
+  const fix = (path: string) => {
+    const stat = lstatSync(path)
+    if (stat.isSymbolicLink()) {
+      return
+    }
+    if (stat.isDirectory()) {
+      chmodSync(path, (stat.mode & 0o7777) | 0o755)
+      for (const entry of readdirSync(path)) {
+        fix(Path.join(path, entry))
+      }
+    } else if (stat.isFile()) {
+      // Readable by everyone; executable by everyone if the owner can run it.
+      const exec = stat.mode & 0o100 ? 0o055 : 0
+      chmodSync(path, (stat.mode & 0o7777) | 0o044 | exec)
+    }
+  }
+  fix(dir)
+}
+
 function run(command: string, args: ReadonlyArray<string>, env = {}) {
   // eslint-disable-next-line no-sync
   const result = cp.spawnSync(command, args, {
@@ -212,6 +240,7 @@ export function packageLinux(options: ILinuxPackageOptions) {
     desktopEntry(productName, LinuxAppId)
   )
   copyFileSync(options.iconPath, Path.join(tarRoot, `${LinuxAppId}.png`))
+  makeWorldReadable(tarRoot)
   hardLinkDuplicates(tarRoot)
 
   const tarballName = `${fileBase}-${version}-linux-${arch}.tar.gz`
@@ -250,6 +279,7 @@ export function packageLinux(options: ILinuxPackageOptions) {
     )
     copyFileSync(options.iconPath, Path.join(appDirPath, `${LinuxAppId}.png`))
     copyFileSync(options.iconPath, Path.join(appDirPath, '.DirIcon'))
+    makeWorldReadable(appDirPath)
 
     const appImage = Path.join(
       outputDir,
