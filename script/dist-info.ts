@@ -26,7 +26,9 @@ export function getExecutableName() {
   if (process.platform === 'win32') {
     return `${getWindowsIdentifierName()}${suffix}`
   } else if (process.platform === 'linux') {
-    return 'desktop'
+    // Also the command name, install folder and icon name (see
+    // script/linux/package-linux.ts).
+    return `github-desktop-custom${suffix}`
   } else {
     return productName
   }

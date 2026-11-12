@@ -25,6 +25,7 @@ import { computeBundleHashSync } from '../app/src/lib/compute-bundle-hash'
 import { readdir, rename } from 'fs/promises'
 import { join } from 'path'
 import { assertNonNullable } from '../app/src/lib/fatal-error'
+import { packageLinux } from './linux/package-linux'
 
 const distPath = getDistPath()
 const productName = getProductName()
@@ -40,6 +41,23 @@ if (process.platform === 'darwin') {
   packageOSX()
 } else if (process.platform === 'win32') {
   packageWindows()
+} else if (process.platform === 'linux') {
+  packageLinux({
+    appDir: distPath,
+    outputDir,
+    productName,
+    version: getVersion(),
+    arch: getDistArchitecture(),
+    iconPath: path.join(
+      __dirname,
+      '..',
+      'app',
+      'static',
+      'linux',
+      'icon-logo.png'
+    ),
+    homepage: 'https://github.com/Blake-McCullough/desktop',
+  })
 } else {
   console.error(`I don't know how to package for ${process.platform} :(`)
   process.exit(1)

@@ -1,0 +1,163 @@
+name: Build installers
+
+# Reusable: builds the Windows installer, the Linux AppImage and tarball,
+# and an Arch Linux (CachyOS, Manjaro, EndeavourOS…) package, and uploads
+# them as artifacts named installers-windows / installers-linux /
+# installers-arch. Called by auto-release.yml and custom-release.yml.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit, branch or tag to build'
+        required: true
+        type: string
+      version:
+        description: 'Version to stamp into app/package.json (empty = keep)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      # GitHub signs its own builds with a certificate forks don't have.
+      DESKTOP_SKIP_CODE_SIGNING: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Update npm
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set version
+        if: inputs.version != ''
+        shell: bash
+        run: node script/set-version.js "${{ inputs.version }}"
+
+      - name: Build
+        run: npm run build:prod
+
+      - name: Package
+        run: npm run package
+
+      - name: Collect files
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File | Format-Table Name, Length
+          $files = Get-ChildItem dist -File |
+            Where-Object { $_.Name -match '\.(exe|msi|nupkg)$' -or $_.Name -eq 'RELEASES' }
+          if ($files.Count -eq 0) { throw 'No installer files were produced' }
+          New-Item -ItemType Directory -Force upload | Out-Null
+          $files | Copy-Item -Destination upload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-windows
+          path: upload/*
+          if-no-files-found: error
+          retention-days: 7
+
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libsecret-1-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Update npm
+        run: npm install -g npm@11
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set version
+        if: inputs.version != ''
+        run: node script/set-version.js "${{ inputs.version }}"
+
+      - name: Build
+        run: npm run build:prod
+
+      - name: Get appimagetool
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/appimagetool" \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
+
+      - name: Package
+        run: npm run package
+
+      - name: Collect files
+        run: |
+          ls -la dist
+          mkdir -p upload
+          cp dist/*.tar.gz dist/*.AppImage dist/PKGBUILD upload/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-linux
+          path: upload/*
+          if-no-files-found: error
+          retention-days: 7
+
+  arch:
+    name: Arch Linux package
+    needs: linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers-linux
+          path: build
+
+      - name: Build package with makepkg
+        run: |
+          pacman -Syu --noconfirm --needed
+          useradd -m builder
+          chown -R builder build
+          # --nodeps: the runtime dependencies (gtk3, nss, …) aren't needed
+          # to assemble the package, only to run it.
+          su builder -c 'cd build && makepkg --nodeps --noconfirm'
+          ls -la build
+          mkdir -p upload
+          cp build/*.pkg.tar.zst upload/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-arch
+          path: upload/*
+          if-no-files-found: error
+          retention-days: 7

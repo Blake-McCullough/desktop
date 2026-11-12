@@ -7,10 +7,17 @@ graph, and other workflow improvements. It installs as a separate app
 Desktop.
 
 **[Download the latest release](https://github.com/Blake-McCullough/desktop/releases/latest)**
-— run `GitHubDesktopCustomSetup-x64.exe`.
 
-> The installer isn't code-signed, so Windows SmartScreen will warn you the
-> first time. Choose **More info → Run anyway**.
+| Platform | Download | Install |
+| --- | --- | --- |
+| Windows | `GitHubDesktopCustomSetup-x64.exe` | Run it. It isn't code-signed, so SmartScreen will warn you the first time: choose **More info → Run anyway**. |
+| Arch Linux, CachyOS, Manjaro, EndeavourOS | `github-desktop-custom-bin-….pkg.tar.zst` | `sudo pacman -U github-desktop-custom-bin-*.pkg.tar.zst` — then launch **GitHub Desktop Custom** from your app menu, or run `github-desktop-custom`. |
+| Other Linux | `GitHubDesktopCustom-…-x64.AppImage` | `chmod +x` it and run it. |
+| Other Linux (no AppImage) | `GitHubDesktopCustom-…-linux-x64.tar.gz` | Extract and run `github-desktop-custom/github-desktop-custom`. |
+
+On Linux, sign-in and tokens are stored in your keyring, so `libsecret`
+(and a keyring such as GNOME Keyring or KWallet) needs to be available —
+the Arch package pulls `libsecret` in automatically.
 
 ## Features
 
@@ -88,7 +95,9 @@ to switch to, open, or remove them.
 
 ## Building it yourself
 
-Requirements (Windows):
+### Windows
+
+Requirements:
 
 - [Node.js](https://nodejs.org/) — the version in [`.node-version`](./.node-version)
 - npm 11.17 or newer: `npm install -g npm@latest`
@@ -109,11 +118,38 @@ unpacked app to `dist\GitHubDesktopCustom-win32-x64\GitHubDesktopCustom.exe`.
 Settings and repository lists live in `%APPDATA%\GitHub Desktop Custom`, so
 reinstalling or upgrading keeps them.
 
+### Linux
+
+Requirements: Node.js (the version in [`.node-version`](./.node-version)),
+npm 11.17+, Python 3, a C/C++ toolchain, and `libsecret` headers — on Arch /
+CachyOS: `sudo pacman -S --needed base-devel python libsecret`.
+
+```sh
+git clone --recurse-submodules https://github.com/Blake-McCullough/desktop.git
+cd desktop
+npm ci
+npm run build:prod
+npm run package
+```
+
+This writes to `dist/`:
+
+- `github-desktop-custom-linux-x64/github-desktop-custom` — the app, ready to
+  run;
+- `GitHubDesktopCustom-<version>-linux-x64.tar.gz` and a `PKGBUILD` next to
+  it — on Arch-based systems, `cd dist && makepkg -si` builds and installs a
+  pacman package from them;
+- an AppImage, if `APPIMAGETOOL` points at
+  [appimagetool](https://github.com/AppImage/appimagetool).
+
+Settings live in `~/.config/GitHub Desktop Custom`.
+
 ## Releasing
 
 Every push to `main` is released automatically. The **Auto release (main)**
-workflow builds the Windows installer on GitHub Actions and publishes it as a
-new GitHub release, usually within 20–30 minutes:
+workflow builds the Windows installer, the Linux AppImage and tarball, and an
+Arch Linux package on GitHub Actions, and publishes them as a new GitHub
+release, usually within 15–20 minutes:
 
 - Version: the `version` in [`app/package.json`](./app/package.json) plus a
   build number, e.g. `3.6.11-custom1-b00042` (tag `v3.6.11-custom1-b00042`).
@@ -126,7 +162,7 @@ release), change `version` in `app/package.json`.
 
 You can also publish a release by hand — **Releases → Draft a new release**
 with a new tag — and the **Release (custom build)** workflow will build and
-attach the installer to it.
+attach the installers to it.
 
 ## Keeping up with upstream
 
