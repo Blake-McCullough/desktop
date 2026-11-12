@@ -2,6 +2,7 @@ import { app, net, WebContents } from 'electron'
 import * as Path from 'path'
 import * as os from 'os'
 import { spawn } from 'child_process'
+import { createHash } from 'crypto'
 import { createWriteStream, existsSync } from 'fs'
 import { chmod, mkdir, rename, rm } from 'fs/promises'
 import {
@@ -124,6 +125,7 @@ async function download(
   url: string,
   destination: string,
   expectedSize: number,
+  expectedSha256: string | null,
   webContents: WebContents
 ): Promise<string> {
   await mkdir(Path.dirname(destination), { recursive: true })
@@ -140,6 +142,7 @@ async function download(
   const total =
     parseInt(response.headers.get('content-length') ?? '', 10) || expectedSize
   const file = createWriteStream(partial)
+  const hash = createHash('sha256')
   const reader = response.body.getReader()
   let received = 0
   let lastReport = 0
@@ -151,6 +154,7 @@ async function download(
         break
       }
       received += value.byteLength
+      hash.update(value)
       if (!file.write(value)) {
         await new Promise<void>(resolve => file.once('drain', () => resolve()))
       }
@@ -170,6 +174,16 @@ async function download(
     await rm(partial, { force: true })
     throw new Error(
       `Download was incomplete (${received} of ${expectedSize} bytes)`
+    )
+  }
+
+  // GitHub publishes a SHA-256 for release files; refuse anything that
+  // doesn't match (corrupted or tampered download).
+  const actualSha256 = hash.digest('hex')
+  if (expectedSha256 !== null && actualSha256 !== expectedSha256) {
+    await rm(partial, { force: true })
+    throw new Error(
+      "The download's checksum didn't match the release; please try again."
     )
   }
 
@@ -231,17 +245,41 @@ export async function installCustomUpdate(
         asset.url,
         Path.join(downloadDir, asset.name),
         asset.size,
+        asset.sha256,
         webContents
       )
       sendProgress(webContents, {
         phase: 'installing',
         message: 'Starting the installer…',
       })
-      // Squirrel's Setup.exe installs the new version over this one and
-      // starts it once done; it needs this copy to have exited.
-      spawn(setup, [], { detached: true, stdio: 'ignore' }).unref()
+      // Squirrel's Setup.exe installs the new version and then starts it.
+      // If this copy were still running at that point, the new one would
+      // hand over to it (single instance) and exit — leaving the old
+      // version open. So a small helper waits for this process to exit
+      // before starting the installer.
+      const waitThenInstall = [
+        `Wait-Process -Id ${process.pid} -ErrorAction SilentlyContinue`,
+        `Start-Process -FilePath '${setup.replace(/'/g, "''")}'`,
+      ].join('; ')
+      spawn(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-WindowStyle',
+          'Hidden',
+          '-Command',
+          waitThenInstall,
+        ],
+        { detached: true, stdio: 'ignore', windowsHide: true }
+      ).unref()
       sendProgress(webContents, { phase: 'restarting' })
-      setTimeout(() => app.quit(), 500)
+      setTimeout(() => {
+        app.quit()
+        // If something holds up a normal quit, don't leave the installer
+        // waiting forever.
+        setTimeout(() => app.exit(0), 10 * 1000)
+      }, 500)
       return { ok: true, error: null, manualCommand: null }
     }
 
@@ -255,6 +293,7 @@ export async function installCustomUpdate(
         asset.url,
         `${target}.update`,
         asset.size,
+        asset.sha256,
         webContents
       )
       sendProgress(webContents, {
@@ -275,6 +314,7 @@ export async function installCustomUpdate(
       asset.url,
       Path.join(downloadDir, asset.name),
       asset.size,
+      asset.sha256,
       webContents
     )
     const manualCommand = `sudo pacman -U ${pkg}`
