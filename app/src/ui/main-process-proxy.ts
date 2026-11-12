@@ -85,6 +85,12 @@ export const executeMenuItemById = sendProxy('execute-menu-item-by-id', 1)
  */
 export const isWindowFocused = invokeProxy('is-window-focused', 0)
 
+/** Check this build's GitHub releases for a newer version. */
+export const checkForCustomUpdate = invokeProxy('custom-update-check', 0)
+
+/** Download and install a release of this build, then restart. */
+export const installCustomUpdate = invokeProxy('custom-update-install', 1)
+
 /** Tell the main process to focus on the main window. */
 export const focusWindow = sendProxy('focus-window', 0)
 

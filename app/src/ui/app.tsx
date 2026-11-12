@@ -148,6 +148,9 @@ import { RepositoryGroupColorDialog } from './repositories-list/repository-group
 import { ImportRepositoriesDialog } from './repositories-list/import-repositories-dialog'
 import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
 import { CommitGraphDialog } from './commit-graph/commit-graph-dialog'
+import { CustomUpdateDialog } from './custom-update/custom-update-dialog'
+import { CustomUpdateAvailable } from './banners/custom-update-available'
+import { customUpdateStore } from './lib/custom-update-store'
 import { ThankYou } from './thank-you'
 import {
   getUserContributions,
@@ -270,6 +273,9 @@ const ReadyDelay = 100
 export class App extends React.Component<IAppProps, IAppState> {
   private loading = true
 
+  /** Re-renders when the custom build's update status changes. */
+  private customUpdateSubscription: { dispose(): void } | null = null
+
   /**
    * Used on non-macOS platforms to support the Alt key behavior for
    * the custom application menu. See the event handlers for window
@@ -378,6 +384,7 @@ export class App extends React.Component<IAppProps, IAppState> {
 
   public componentWillUnmount() {
     window.clearInterval(this.updateIntervalHandle)
+    this.customUpdateSubscription?.dispose()
 
     if (__DARWIN__) {
       window.removeEventListener('keydown', this.onMacOSWindowKeyDown)
@@ -471,6 +478,10 @@ export class App extends React.Component<IAppProps, IAppState> {
         return this.showWorktrees()
       case 'show-commit-graph':
         return this.showCommitGraph()
+      case 'check-for-custom-updates':
+        return this.props.dispatcher.showPopup({
+          type: PopupType.CustomUpdate,
+        })
       case 'create-worktree':
         return this.showCreateWorktree()
       case 'remove-repository':
@@ -1056,6 +1067,11 @@ export class App extends React.Component<IAppProps, IAppState> {
   }
 
   public componentDidMount() {
+    this.customUpdateSubscription = customUpdateStore.onDidUpdate(() =>
+      this.forceUpdate()
+    )
+    customUpdateStore.startAutoCheck()
+
     document.ondragover = e => {
       if (e.dataTransfer != null) {
         if (this.isShowingModal) {
@@ -2614,6 +2630,15 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       }
+      case PopupType.CustomUpdate: {
+        return (
+          <CustomUpdateDialog
+            key="custom-update"
+            installImmediately={popup.installImmediately}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
       case PopupType.CommitGraph: {
         return (
           <CommitGraphDialog
@@ -4084,6 +4109,8 @@ export class App extends React.Component<IAppProps, IAppState> {
         this.props.dispatcher,
         this.onBannerDismissed
       )
+    } else if (customUpdateStore.shouldShowBanner()) {
+      banner = this.renderCustomUpdateBanner()
     } else if (
       this.state.isUpdateAvailableBannerVisible ||
       this.state.isUpdateShowcaseVisible
@@ -4104,6 +4131,35 @@ export class App extends React.Component<IAppProps, IAppState> {
         </TransitionGroup>
       </div>
     )
+  }
+
+  private renderCustomUpdateBanner() {
+    const version =
+      customUpdateStore.getState().lastCheck?.latest?.version ?? ''
+    return (
+      <CustomUpdateAvailable
+        key="custom-update-available"
+        version={version}
+        onUpdate={this.onCustomUpdateNow}
+        onShowDetails={this.onCustomUpdateDetails}
+        onDismissed={this.onCustomUpdateDismissed}
+      />
+    )
+  }
+
+  private onCustomUpdateNow = () => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.CustomUpdate,
+      installImmediately: true,
+    })
+  }
+
+  private onCustomUpdateDetails = () => {
+    this.props.dispatcher.showPopup({ type: PopupType.CustomUpdate })
+  }
+
+  private onCustomUpdateDismissed = () => {
+    customUpdateStore.dismiss()
   }
 
   private renderUpdateBanner() {

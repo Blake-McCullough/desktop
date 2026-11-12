@@ -14,6 +14,7 @@ import {
 import * as Fs from 'fs'
 
 import { AppWindow } from './app-window'
+import { checkForCustomUpdate, installCustomUpdate } from './custom-updater'
 import { buildDefaultMenu, getAllMenuItems } from './menu'
 import { shellNeedsPatching, updateEnvironmentForProcess } from '../lib/shell'
 import { parseAppURL } from '../lib/parse-app-url'
@@ -743,6 +744,12 @@ app.on('ready', () => {
   ipcMain.handle(
     'is-window-focused',
     async () => mainWindow?.isFocused() ?? false
+  )
+
+  ipcMain.handle('custom-update-check', async () => checkForCustomUpdate())
+
+  ipcMain.handle('custom-update-install', async (event, release) =>
+    installCustomUpdate(release, event.sender)
   )
 
   /** An event sent by the renderer asking to focus the main window. */

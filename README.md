@@ -19,6 +19,22 @@ On Linux, sign-in and tokens are stored in your keyring, so `libsecret`
 (and a keyring such as GNOME Keyring or KWallet) needs to be available —
 the Arch package pulls `libsecret` in automatically.
 
+## Updating
+
+The app checks this repository's releases for a newer version shortly after
+it starts and every few hours, and shows a banner when one is available.
+You can also use **Help → Check for updates…**. **Update now** downloads and
+installs the right file for how you installed it, then restarts:
+
+- **Windows** — runs the new installer.
+- **Arch / CachyOS package** — installs it with `pacman`, asking for your
+  password through the desktop's normal prompt.
+- **AppImage** — replaces the AppImage file in place.
+
+A copy extracted from the `.tar.gz` can't update itself; the update window
+links to the release instead. Automatic checks can be turned off in the
+update window.
+
 ## Features
 
 ### Repositories sidebar

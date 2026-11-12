@@ -1562,3 +1562,115 @@ dialog#commit-graph {
     }
   }
 }
+
+/* ----------------------------------------------------- custom updates */
+
+#custom-update {
+  width: 560px;
+  max-width: 92vw;
+
+  .muted {
+    color: var(--text-secondary-color);
+  }
+
+  .current-version {
+    margin-top: 0;
+  }
+
+  .update-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    &.ok .octicon {
+      color: var(--status-success-color);
+    }
+
+    &.available .octicon {
+      color: var(--focus-color);
+    }
+
+    &.error {
+      color: var(--status-error-color);
+    }
+  }
+
+  .release-notes {
+    max-height: 220px;
+    overflow: auto;
+    margin: 0 0 var(--spacing);
+    padding: var(--spacing);
+    border: var(--base-border);
+    border-radius: var(--border-radius);
+    background: var(--box-alt-background-color);
+    white-space: pre-wrap;
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    user-select: text;
+  }
+
+  .update-progress {
+    margin: var(--spacing) 0;
+
+    .label {
+      margin-bottom: 4px;
+      font-size: var(--font-size-sm);
+    }
+
+    progress {
+      width: 100%;
+    }
+  }
+
+  .update-error {
+    margin: var(--spacing) 0;
+    padding: var(--spacing);
+    border: 1px solid var(--status-error-color);
+    border-radius: var(--border-radius);
+
+    p {
+      display: flex;
+      gap: 6px;
+      margin: 0 0 var(--spacing-half);
+      color: var(--status-error-color);
+    }
+
+    .manual-command {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: var(--spacing-half);
+
+      code {
+        flex: 1 1 auto;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: var(--box-alt-background-color);
+        user-select: text;
+        word-break: break-all;
+      }
+    }
+  }
+
+  .custom-update-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-half);
+    width: 100%;
+
+    .button-component {
+      width: auto;
+      min-width: 0;
+      padding: 0 var(--spacing);
+      white-space: nowrap;
+    }
+
+    .spacer {
+      flex: 1 1 auto;
+    }
+  }
+}
+
+#custom-update-available .download-icon {
+  color: var(--focus-color);
+}

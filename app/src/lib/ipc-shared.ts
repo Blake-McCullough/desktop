@@ -1,3 +1,9 @@
+import {
+  CustomUpdateProgress,
+  ICustomRelease,
+  ICustomUpdateCheckResult,
+  ICustomUpdateInstallResult,
+} from './custom-update'
 import { IMenuItemState } from './menu-update'
 import { MenuIDs } from '../models/menu-ids'
 import { ISerializableMenuItem } from './menu-item'
@@ -25,6 +31,8 @@ import { CLIAction } from './cli-action'
  * the two over the untyped IPC framework.
  */
 export type RequestChannels = {
+  /** Main → renderer: progress of downloading/installing a custom update. */
+  'custom-update-progress': (progress: CustomUpdateProgress) => void
   'select-all-window-contents': () => void
   'dialog-did-open': () => void
   'update-menu-state': (
@@ -104,6 +112,12 @@ export type RequestChannels = {
  * Return signatures must be promises
  */
 export type RequestResponseChannels = {
+  /** Check this repository's GitHub releases for a newer custom build. */
+  'custom-update-check': () => Promise<ICustomUpdateCheckResult>
+  /** Download and install a custom build release, then restart. */
+  'custom-update-install': (
+    release: ICustomRelease
+  ) => Promise<ICustomUpdateInstallResult>
   'get-path': (path: PathType) => Promise<string>
   'get-app-architecture': () => Promise<Architecture>
   'get-app-path': () => Promise<string>

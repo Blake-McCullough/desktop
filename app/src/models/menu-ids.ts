@@ -41,6 +41,7 @@ export type MenuIDs =
   | 'create-worktree'
   | 'show-worktrees-list'
   | 'show-commit-graph'
+  | 'check-for-custom-updates'
   | 'preview-pull-request'
   | 'decrease-active-resizable-width'
   | 'increase-active-resizable-width'
