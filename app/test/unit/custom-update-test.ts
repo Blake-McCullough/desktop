@@ -25,6 +25,25 @@ const assets: IGitHubReleaseJson['assets'] = [
 }))
 
 describe('custom updates', () => {
+  it('reads the SHA-256 GitHub publishes for a file', () => {
+    const withDigest: IGitHubReleaseJson['assets'] = [
+      {
+        name: 'GitHubDesktopCustomSetup-x64.exe',
+        browser_download_url: 'https://example.com/setup.exe',
+        size: 5,
+        digest: `sha256:${'AB'.repeat(32)}`,
+      },
+    ]
+    assert.equal(
+      selectAsset(withDigest, 'windows-setup', 'win32', 'x64')?.sha256,
+      'ab'.repeat(32)
+    )
+    assert.equal(
+      selectAsset(assets, 'windows-setup', 'win32', 'x64')?.sha256,
+      null
+    )
+  })
+
   it('reads versions from release tags', () => {
     assert.equal(
       versionFromTag('v3.6.11-custom1-b00006'),

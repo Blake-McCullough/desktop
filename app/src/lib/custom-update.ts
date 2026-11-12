@@ -25,6 +25,8 @@ export interface ICustomReleaseAsset {
   readonly name: string
   readonly url: string
   readonly size: number
+  /** Lower-case hex SHA-256 from GitHub, when it provides one. */
+  readonly sha256: string | null
 }
 
 export interface ICustomRelease {
@@ -76,6 +78,8 @@ export interface IGitHubReleaseJson {
     readonly name: string
     readonly browser_download_url: string
     readonly size: number
+    /** e.g. "sha256:1f2e…" (GitHub fills this in for newer uploads). */
+    readonly digest?: string | null
   }>
 }
 
@@ -122,9 +126,17 @@ export function selectAsset(
   }
 
   const asset = assets.find(a => pattern.test(a.name))
-  return asset === undefined
-    ? null
-    : { name: asset.name, url: asset.browser_download_url, size: asset.size }
+  if (asset === undefined) {
+    return null
+  }
+
+  const digest = /^sha256:([0-9a-f]{64})$/i.exec(asset.digest ?? '')
+  return {
+    name: asset.name,
+    url: asset.browser_download_url,
+    size: asset.size,
+    sha256: digest !== null ? digest[1].toLowerCase() : null,
+  }
 }
 
 /** Turn a GitHub release into what the update UI needs. */
