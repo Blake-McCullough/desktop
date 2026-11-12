@@ -1,7 +1,8 @@
 name: Auto release (main)
 
-# Every push to main builds the Windows installer and publishes it as a new
-# GitHub release, versioned "<app/package.json version>-b<run number>"
+# Every push to main builds the Windows installer, the Linux AppImage and
+# tarball, and an Arch Linux package, and publishes them as a new GitHub
+# release, versioned "<app/package.json version>-b<run number>"
 # (e.g. 3.6.11-custom1-b00042) and tagged "v<version>".
 #
 # If several commits land close together, only the newest is built.
@@ -24,103 +25,87 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  release:
-    name: Build and release Windows installer
-    runs-on: windows-latest
-    timeout-minutes: 90
-    env:
-      # GitHub signs its own builds with a certificate forks don't have.
-      DESKTOP_SKIP_CODE_SIGNING: '1'
+  prepare:
+    name: Work out version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      base: ${{ steps.version.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          base=$(node -p "require('./app/package.json').version")
+          # Zero-padded so versions also sort correctly as text.
+          version="$base-b$(printf '%05d' "$GITHUB_RUN_NUMBER")"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Building $version"
+
+  build:
+    name: Build
+    needs: prepare
+    uses: ./.github/workflows/build-installers.yml
+    with:
+      ref: ${{ github.sha }}
+      version: ${{ needs.prepare.outputs.version }}
+
+  publish:
+    name: Publish release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           # History (without file contents) for the changelog.
           fetch-depth: 0
           filter: blob:none
-          fetch-tags: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version-file: .node-version
-          cache: npm
-
-      - name: Update npm
-        run: npm install -g npm@11
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Work out version
-        id: version
-        shell: pwsh
-        run: |
-          $base = node -p "require('./app/package.json').version"
-          $build = '{0:D5}' -f [int]$env:GITHUB_RUN_NUMBER
-          # Zero-padded so versions also sort correctly as text.
-          $version = "$base-b$build"
-          node -e "const fs=require('fs');const p='app/package.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=process.argv[1];fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')" $version
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "tag=v$version" >> $env:GITHUB_OUTPUT
-          "build=$([int]$env:GITHUB_RUN_NUMBER)" >> $env:GITHUB_OUTPUT
-          "base=$base" >> $env:GITHUB_OUTPUT
-          Write-Host "Building $version"
-
-      - name: Build
-        run: npm run build:prod
-
-      - name: Package
-        run: npm run package
-
-      - name: Collect release files
-        shell: pwsh
-        run: |
-          Get-ChildItem dist -File | Format-Table Name, Length
-          $files = Get-ChildItem dist -File |
-            Where-Object { $_.Name -match '\.(exe|msi|nupkg)$' -or $_.Name -eq 'RELEASES' }
-          if ($files.Count -eq 0) { throw 'No installer files were produced' }
-          New-Item -ItemType Directory -Force release | Out-Null
-          $files | Copy-Item -Destination release
+          pattern: installers-*
+          path: release
+          merge-multiple: true
 
       - name: Write release notes
-        shell: pwsh
         run: |
+          ls -la release
           # Commits since the previous release on main (first-parent, so a
           # merge from upstream shows as one line rather than hundreds).
-          $previous = git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>$null
-          if ($LASTEXITCODE -eq 0 -and $previous) {
-            $range = "$previous..HEAD"
-            $heading = "Changes since $previous"
-          } else {
-            $range = '-20'
-            $heading = 'Recent changes'
-          }
-          $global:LASTEXITCODE = 0
-          $commits = git log --first-parent --format='- %s (%h)' $range
+          if previous=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null); then
+            range="$previous..HEAD"; heading="Changes since $previous"
+          else
+            range="-20"; heading="Recent changes"
+          fi
+          {
+            echo "Built automatically from $GITHUB_SHA on main."
+            echo
+            echo "### Install"
+            echo
+            echo "- **Windows:** run \`GitHubDesktopCustomSetup-x64.exe\`. It isn't code-signed, so SmartScreen will warn you: choose **More info → Run anyway**."
+            echo "- **Arch Linux / CachyOS / Manjaro:** download the \`.pkg.tar.zst\` and run \`sudo pacman -U github-desktop-custom-bin-*.pkg.tar.zst\`."
+            echo "- **Other Linux:** download the \`.AppImage\`, \`chmod +x\` it and run it — or extract the \`.tar.gz\` and run \`github-desktop-custom/github-desktop-custom\`."
+            echo
+            echo "Your settings and repositories are kept when upgrading."
+            echo
+            echo "### $heading"
+            echo
+            git log --first-parent --format='- %s (%h)' $range
+          } > release-notes.md
+          cat release-notes.md
 
-          $notes = @(
-            "Built automatically from $env:GITHUB_SHA on main.",
-            '',
-            "**Install:** download ``GitHubDesktopCustomSetup-x64.exe`` below and run it. Your settings and repositories are kept. The installer isn't code-signed, so Windows SmartScreen will warn you: choose **More info → Run anyway**.",
-            '',
-            "### $heading",
-            ''
-          ) + $commits
-          $notes -join "`n" | Out-File -Encoding utf8 release-notes.md
-          Get-Content release-notes.md
-
-      - name: Publish release
-        shell: pwsh
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG: ${{ needs.prepare.outputs.tag }}
           TITLE:
-            GitHub Desktop Custom ${{ steps.version.outputs.base }} (build ${{
-            steps.version.outputs.build }})
+            GitHub Desktop Custom ${{ needs.prepare.outputs.base }} (build ${{
+            github.run_number }})
         run: |
-          gh release create $env:TAG (Get-ChildItem release -File).FullName `
-            --target $env:GITHUB_SHA `
-            --title $env:TITLE `
-            --notes-file release-notes.md `
+          gh release create "$TAG" release/* \
+            --target "$GITHUB_SHA" \
+            --title "$TITLE" \
+            --notes-file release-notes.md \
             --latest
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to publish the release' }
