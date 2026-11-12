@@ -82,6 +82,7 @@ optdepends=('git: a system git (the app bundles its own)')
 provides=('${LinuxAppId}')
 conflicts=('${LinuxAppId}')
 options=('!strip' '!debug')
+install=${LinuxAppId}.install
 source=("${tarballName}")
 sha256sums=('${sha256}')
 
@@ -107,6 +108,21 @@ package() {
 }
 `
 }
+
+/**
+ * pacman install hooks. pacman doesn't change the permissions of a folder
+ * that already exists when upgrading, so upgrades from builds where
+ * /opt/github-desktop-custom was 700 (root-only) would stay broken
+ * without this.
+ */
+const PacmanInstallScript = `post_install() {
+  chmod 755 /opt/${LinuxAppId}
+}
+
+post_upgrade() {
+  post_install
+}
+`
 
 /** AppImage entry point: picks the sandbox mode the system supports. */
 const AppRun = `#!/bin/sh
@@ -257,6 +273,10 @@ export function packageLinux(options: ILinuxPackageOptions) {
     writeFileSync(
       Path.join(outputDir, 'PKGBUILD'),
       pkgbuild(options, tarballName, sha256)
+    )
+    writeFileSync(
+      Path.join(outputDir, `${LinuxAppId}.install`),
+      PacmanInstallScript
     )
     console.log('Wrote PKGBUILD')
   }
