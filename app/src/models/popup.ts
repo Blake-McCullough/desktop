@@ -133,6 +133,7 @@ export enum PopupType {
   ImportRepositories = 'ImportRepositories',
   WorktreeViewer = 'WorktreeViewer',
   CommitGraph = 'CommitGraph',
+  CustomUpdate = 'CustomUpdate',
 }
 
 interface IBasePopup {
@@ -600,6 +601,11 @@ export type PopupDetail =
       defaultValue?: string
       /** Called with the entered, normalized `#rrggbb` hex color when the user submits */
       onSubmit: (hex: string) => void
+    }
+  | {
+      type: PopupType.CustomUpdate
+      /** Start installing as soon as the dialog opens. */
+      installImmediately?: boolean
     }
   | {
       type: PopupType.CommitGraph
