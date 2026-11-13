@@ -57,6 +57,14 @@ From the sidebar's **+** menu:
   it is kept — and the import adds repositories already on disk, clones the
   missing ones, and recreates your groups.
 
+### Repository list and sidebar
+
+The **Current repository** list in the toolbar follows your sidebar groups:
+the same groups, colors and GitLab pipeline dots (with Run buttons), and its
+right-click menu can move a repository to a group. If you prefer the toolbar
+list on its own, turn off **Show repositories sidebar** in
+**Options → Appearance** (it's on by default).
+
 ### Moving repository folders
 
 Move repositories on disk without breaking anything in the app:

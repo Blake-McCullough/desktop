@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { groupRepositories } from '../../src/ui/repositories-list/group-repositories'
+import {
+  groupRepositories,
+  groupRepositoriesBySidebarGroups,
+} from '../../src/ui/repositories-list/group-repositories'
 import { Repository, ILocalRepositoryState } from '../../src/models/repository'
 import { CloningRepository } from '../../src/models/cloning-repository'
 import { gitHubRepoFixture } from '../helpers/github-repo-builder'
@@ -152,5 +155,67 @@ describe('repository list grouping', () => {
 
     assert.equal(grouped[2].items[1].text[0], 'enterprise-repo')
     assert(grouped[2].items[1].needsDisambiguation)
+  })
+})
+
+describe('repository list grouping by sidebar groups', () => {
+  const repos = [
+    new Repository('/c/zeta', 1, null, false),
+    new Repository('/c/alpha', 2, null, false),
+    new Repository('/c/beta', 3, null, false),
+    new Repository('/d/beta', 4, null, false),
+  ]
+  const groups = [
+    { id: 'g-work', name: 'Work', color: '#ff0000' },
+    { id: 'g-apps', name: 'apps' },
+    { id: 'g-empty', name: 'Empty' },
+  ]
+  const assignments = new Map([
+    [1, 'g-work'],
+    [2, 'g-apps'],
+    [3, 'g-work'],
+    [4, 'g-work'],
+  ])
+
+  it('follows the sidebar: groups by name with colors, then Other', () => {
+    const grouped = groupRepositoriesBySidebarGroups(
+      [...repos, new Repository('/c/loose', 5, null, false)],
+      new Map(),
+      [],
+      groups,
+      assignments
+    )
+    assert.deepEqual(
+      grouped.map(g =>
+        g.identifier.kind === 'custom' ? g.identifier.name : g.identifier.kind
+      ),
+      ['apps', 'Work', 'other']
+    )
+    const work = grouped[1]
+    assert.equal(
+      work.identifier.kind === 'custom' && work.identifier.color,
+      '#ff0000'
+    )
+    assert.deepEqual(
+      work.items.map(i => i.repository.path),
+      ['/c/beta', '/d/beta', '/c/zeta']
+    )
+    // Two "beta"s in one group are told apart.
+    assert.equal(work.items[0].needsDisambiguation, true)
+    assert.equal(work.items[2].needsDisambiguation, false)
+  })
+
+  it('treats repositories in a deleted group as Other', () => {
+    const grouped = groupRepositoriesBySidebarGroups(
+      [new Repository('/c/x', 9, null, false)],
+      new Map(),
+      [],
+      groups,
+      new Map([[9, 'gone']])
+    )
+    assert.deepEqual(
+      grouped.map(g => g.identifier.kind),
+      ['other']
+    )
   })
 })

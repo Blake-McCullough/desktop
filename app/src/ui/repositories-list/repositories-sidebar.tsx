@@ -87,13 +87,6 @@ interface IRepositoriesSidebarProps {
     login: string
   ) => void
   readonly onShowRepositorySettings: (repository: Repository) => void
-
-  /**
-   * The sha of the currently selected repository's tip commit, or `null`.
-   * Used to refetch the selected repository's pipeline immediately after a
-   * branch switch or new commit.
-   */
-  readonly selectedRepositoryTipSha: string | null
 }
 
 interface IGroupSection {
@@ -145,7 +138,6 @@ export class RepositoriesSidebar extends React.PureComponent<
 > {
   private readonly disposables: Array<Disposable> = []
   private noticeTimer: number | null = null
-  private repositoriesRefreshTimer: number | null = null
   private filterInputRef = React.createRef<HTMLInputElement>()
 
   private getSections = memoizeOne(
@@ -247,75 +239,16 @@ export class RepositoriesSidebar extends React.PureComponent<
       }),
       onCustomGroupsChanged(this.refreshFromStore)
     )
-
-    // The store owns the polling loop (and is a no-op without a token), so
-    // it can pause while the window is hidden and back off on errors.
-    gitLabPipelineStatusStore.startPolling(this.getPollableRepositories)
-  }
-
-  public componentDidUpdate(prevProps: IRepositoriesSidebarProps) {
-    // Repositories load asynchronously at startup (and change when added,
-    // cloned or imported). Fetch for any we haven't seen rather than
-    // waiting for the next poll; the store skips ones it already knows.
-    if (prevProps.repositories !== this.props.repositories) {
-      this.scheduleRepositoriesRefresh()
-    }
-
-    // After a push (or pull/fetch) a repository's ahead/behind changes;
-    // check its latest pushed commit right away instead of at the next tick.
-    if (
-      prevProps.localRepositoryStateLookup !==
-      this.props.localRepositoryStateLookup
-    ) {
-      const changed = this.getPollableRepositories().filter(r => {
-        const before = prevProps.localRepositoryStateLookup.get(r.id)
-        const after = this.props.localRepositoryStateLookup.get(r.id)
-        return (
-          before?.aheadBehind?.ahead !== after?.aheadBehind?.ahead ||
-          before?.aheadBehind?.behind !== after?.aheadBehind?.behind
-        )
-      })
-      if (changed.length > 0) {
-        gitLabPipelineStatusStore.refresh(changed)
-      }
-    }
-
-    if (
-      prevProps.selectedRepositoryTipSha !==
-        this.props.selectedRepositoryTipSha &&
-      this.props.selectedRepository instanceof Repository
-    ) {
-      gitLabPipelineStatusStore.refresh([this.props.selectedRepository])
-    }
   }
 
   public componentWillUnmount() {
-    gitLabPipelineStatusStore.stopPolling()
     for (const d of this.disposables) {
       d.dispose()
     }
     if (this.noticeTimer !== null) {
       window.clearTimeout(this.noticeTimer)
     }
-    if (this.repositoriesRefreshTimer !== null) {
-      window.clearTimeout(this.repositoriesRefreshTimer)
-    }
   }
-
-  private scheduleRepositoriesRefresh() {
-    if (this.repositoriesRefreshTimer !== null) {
-      window.clearTimeout(this.repositoriesRefreshTimer)
-    }
-    this.repositoriesRefreshTimer = window.setTimeout(() => {
-      this.repositoriesRefreshTimer = null
-      gitLabPipelineStatusStore.refresh(this.getPollableRepositories())
-    }, 1000)
-  }
-
-  private getPollableRepositories = (): ReadonlyArray<Repository> =>
-    this.props.repositories.filter(
-      (r): r is Repository => r instanceof Repository && !r.missing
-    )
 
   private showNotice(text: string, isError = false) {
     if (this.noticeTimer !== null) {
