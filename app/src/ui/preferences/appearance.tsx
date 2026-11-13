@@ -30,6 +30,8 @@ interface IAppearanceProps {
   readonly onSelectedTabSizeChanged: (tabSize: number) => void
   readonly alwaysShowWorktreeList: boolean
   readonly onAlwaysShowWorktreeListChanged: (value: boolean) => void
+  readonly showRepositoriesSidebar: boolean
+  readonly onShowRepositoriesSidebarChanged: (value: boolean) => void
   readonly selectedDateFormat: DateFormat
   readonly onSelectedDateFormatChanged: (format: DateFormat) => void
   readonly selectedTimeFormat: TimeFormat
@@ -298,8 +300,34 @@ export class Appearance extends React.Component<
           }
           onChange={this.onAlwaysShowWorktreeListChanged}
         />
+
+        <Checkbox
+          className="show-repositories-sidebar"
+          label="Show repositories sidebar"
+          value={
+            this.props.showRepositoriesSidebar
+              ? CheckboxValue.On
+              : CheckboxValue.Off
+          }
+          onChange={this.onShowRepositoriesSidebarChanged}
+          ariaDescribedBy="show-repositories-sidebar-description"
+        />
+        <p
+          id="show-repositories-sidebar-description"
+          className="settings-description"
+        >
+          The always-visible list of repositories on the left. When it's off,
+          switch repositories from the Current repository list in the toolbar,
+          which uses the same groups and colors.
+        </p>
       </div>
     )
+  }
+
+  private onShowRepositoriesSidebarChanged = (
+    event: React.FormEvent<HTMLInputElement>
+  ) => {
+    this.props.onShowRepositoriesSidebarChanged(event.currentTarget.checked)
   }
 
   public render() {

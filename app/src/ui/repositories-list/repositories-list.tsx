@@ -3,6 +3,7 @@ import * as React from 'react'
 import { commitGrammar, RepositoryListItem } from './repository-list-item'
 import {
   groupRepositories,
+  groupRepositoriesBySidebarGroups,
   IRepositoryListItem,
   Repositoryish,
   RepositoryListGroup,
@@ -28,6 +29,23 @@ import { enableWorktreeSupport } from '../../lib/feature-flag'
 import { SectionFilterList } from '../lib/section-filter-list'
 import { assertNever } from '../../lib/fatal-error'
 import { IAheadBehind } from '../../models/branch'
+import { Disposable } from 'event-kit'
+import {
+  createCustomGroup,
+  getCustomGroups,
+  getRepositoryGroupAssignments,
+  hexToRgba,
+  ICustomRepositoryGroup,
+  onCustomGroupsChanged,
+  OtherGroupId,
+  setRepositoryGroup,
+} from './custom-repository-groups-store'
+import {
+  gitLabPipelineStatusStore,
+  IGitLabPipelineStatusMap,
+} from '../../lib/stores/gitlab-pipeline-status-store'
+import { IGitLabJobStatus } from '../../lib/gitlab/gitlab-api'
+import { RepositoryPipelineStatus } from './repository-pipeline-status'
 
 const BlankSlateImage = encodePathAsUrl(__dirname, 'static/empty-no-repo.svg')
 
@@ -93,6 +111,15 @@ interface IRepositoriesListProps {
 interface IRepositoriesListState {
   readonly newRepositoryMenuExpanded: boolean
   readonly selectedItem: IRepositoryListItem | null
+
+  /** The sidebar's groups, which this list follows when there are any. */
+  readonly customGroups: ReadonlyArray<ICustomRepositoryGroup>
+  readonly repositoryGroups: ReadonlyMap<number, string>
+
+  /** Latest known GitLab pipeline states, keyed by repository id. */
+  readonly pipelineStatuses: IGitLabPipelineStatusMap
+  /** Ids of manual jobs being started. */
+  readonly playingJobIds: ReadonlySet<number>
 }
 
 const RowHeight = 29
@@ -135,16 +162,32 @@ export class RepositoriesList extends React.Component<
     (
       repositories: ReadonlyArray<Repositoryish> | null,
       localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
-      recentRepositories: ReadonlyArray<number>
-    ) =>
-      repositories === null
-        ? []
+      recentRepositories: ReadonlyArray<number>,
+      customGroups: ReadonlyArray<ICustomRepositoryGroup>,
+      repositoryGroups: ReadonlyMap<number, string>
+    ) => {
+      if (repositories === null) {
+        return []
+      }
+      // Follow the sidebar's groups (and colors) once there are any;
+      // otherwise keep grouping by owner.
+      return customGroups.length > 0
+        ? groupRepositoriesBySidebarGroups(
+            repositories,
+            localRepositoryStateLookup,
+            recentRepositories,
+            customGroups,
+            repositoryGroups
+          )
         : groupRepositories(
             repositories,
             localRepositoryStateLookup,
             recentRepositories
           )
+    }
   )
+
+  private readonly disposables: Disposable[] = []
 
   /**
    * A memoized function for finding the selected list item based
@@ -163,20 +206,81 @@ export class RepositoriesList extends React.Component<
     this.state = {
       newRepositoryMenuExpanded: false,
       selectedItem: null,
+      customGroups: getCustomGroups(),
+      repositoryGroups: getRepositoryGroupAssignments(),
+      pipelineStatuses: gitLabPipelineStatusStore.getStatuses(),
+      playingJobIds: new Set(),
     }
+  }
+
+  public componentDidMount() {
+    this.disposables.push(
+      onCustomGroupsChanged(() =>
+        this.setState({
+          customGroups: getCustomGroups(),
+          repositoryGroups: getRepositoryGroupAssignments(),
+        })
+      ),
+      gitLabPipelineStatusStore.onDidUpdate(pipelineStatuses =>
+        this.setState({ pipelineStatuses })
+      )
+    )
+  }
+
+  public componentWillUnmount() {
+    for (const d of this.disposables) {
+      d.dispose()
+    }
+  }
+
+  private onPlayJob = (repository: Repository, job: IGitLabJobStatus) => {
+    if (this.state.playingJobIds.has(job.id)) {
+      return
+    }
+    this.setState(prev => ({
+      playingJobIds: new Set(prev.playingJobIds).add(job.id),
+    }))
+    gitLabPipelineStatusStore
+      .playJob(repository, job.id)
+      .catch(e => {
+        log.error(`Failed to play GitLab job '${job.name}'`, e)
+        this.props.dispatcher.postError(e)
+      })
+      .finally(() =>
+        this.setState(prev => {
+          const playingJobIds = new Set(prev.playingJobIds)
+          playingJobIds.delete(job.id)
+          return { playingJobIds }
+        })
+      )
+  }
+
+  private onOpenUrl = (url: string) => {
+    this.props.dispatcher.openInBrowser(url)
   }
 
   private renderItem = (item: IRepositoryListItem, matches: IMatches) => {
     const repository = item.repository
     return (
-      <RepositoryListItem
-        key={repository.id}
-        repository={repository}
-        needsDisambiguation={item.needsDisambiguation}
-        matches={matches}
-        aheadBehind={item.aheadBehind}
-        changedFilesCount={item.changedFilesCount}
-      />
+      <div className="repository-list-row">
+        <RepositoryListItem
+          key={repository.id}
+          repository={repository}
+          needsDisambiguation={item.needsDisambiguation}
+          matches={matches}
+          aheadBehind={item.aheadBehind}
+          changedFilesCount={item.changedFilesCount}
+        />
+        {repository instanceof Repository && (
+          <RepositoryPipelineStatus
+            repository={repository}
+            pipeline={this.state.pipelineStatuses.get(repository.id)}
+            playingJobIds={this.state.playingJobIds}
+            onPlayJob={this.onPlayJob}
+            onOpenUrl={this.onOpenUrl}
+          />
+        )}
+      </div>
     )
   }
 
@@ -263,6 +367,8 @@ export class RepositoriesList extends React.Component<
       return group.owner.login
     } else if (kind === 'recent') {
       return 'Recent'
+    } else if (kind === 'custom') {
+      return group.name
     } else {
       assertNever(kind, `Unknown repository group kind ${kind}`)
     }
@@ -270,17 +376,35 @@ export class RepositoriesList extends React.Component<
 
   private renderGroupHeader = (group: RepositoryListGroup) => {
     const label = this.getGroupLabel(group)
+    const color = group.kind === 'custom' ? group.color : undefined
+    const style =
+      color !== undefined
+        ? ({
+            '--group-color': color,
+            '--group-tint': hexToRgba(color, 0.1),
+          } as React.CSSProperties)
+        : undefined
 
     return (
-      <TooltippedContent
+      <div
         key={getGroupKey(group)}
-        className="filter-list-group-header"
-        tooltip={label}
-        onlyWhenOverflowed={true}
-        tagName="div"
+        className={
+          color !== undefined
+            ? 'filter-list-group-header colored-group-header'
+            : 'filter-list-group-header'
+        }
+        style={style}
       >
-        {label}
-      </TooltippedContent>
+        {color !== undefined && <span className="group-swatch" />}
+        <TooltippedContent
+          className="group-name"
+          tooltip={label}
+          onlyWhenOverflowed={true}
+          tagName="span"
+        >
+          {label}
+        </TooltippedContent>
+      </div>
     )
   }
 
@@ -323,6 +447,12 @@ export class RepositoriesList extends React.Component<
         : undefined,
       repository: item.repository,
       shellLabel: this.props.shellLabel,
+      customGroups: this.state.customGroups,
+      currentGroupId:
+        this.state.repositoryGroups.get(item.repository.id) ?? OtherGroupId,
+      onMoveToGroup: this.onMoveToGroup,
+      onMoveToNewGroup: this.onMoveToNewGroup,
+      onMoveRepository: this.onMoveRepository,
     })
 
     showContextualMenu(items)
@@ -342,7 +472,9 @@ export class RepositoriesList extends React.Component<
     const groups = this.getRepositoryGroups(
       this.props.repositories,
       this.props.localRepositoryStateLookup,
-      this.props.recentRepositories
+      this.props.recentRepositories,
+      this.state.customGroups,
+      this.state.repositoryGroups
     )
 
     // So there's two types of selection at play here. There's the repository
@@ -371,6 +503,8 @@ export class RepositoriesList extends React.Component<
           invalidationProps={{
             repositories: this.props.repositories,
             filterText: this.props.filterText,
+            pipelineStatuses: this.state.pipelineStatuses,
+            playingJobIds: this.state.playingJobIds,
           }}
           onItemContextMenu={this.onItemContextMenu}
           getGroupAriaLabel={this.getGroupAriaLabelGetter(groups)}
@@ -492,6 +626,29 @@ export class RepositoriesList extends React.Component<
     this.props.dispatcher.showPopup({
       type: PopupType.CommitGraph,
       repository,
+    })
+  }
+
+  private onMoveToGroup = (repository: Repositoryish, groupId: string) => {
+    setRepositoryGroup(repository.id, groupId === OtherGroupId ? null : groupId)
+  }
+
+  private onMoveToNewGroup = (repository: Repositoryish) => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.RepositoryGroupNamePrompt,
+      title: 'New Group',
+      okButtonText: 'Create',
+      onSubmit: name => {
+        const group = createCustomGroup(name)
+        setRepositoryGroup(repository.id, group.id)
+      },
+    })
+  }
+
+  private onMoveRepository = (repository: Repository) => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.MoveRepositories,
+      repositories: [repository],
     })
   }
 

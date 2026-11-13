@@ -81,6 +81,7 @@ const GroupsStorageKey = 'repositories-sidebar/custom-groups'
 const CollapsedGroupsStorageKey = 'repositories-sidebar/collapsed-groups'
 const SidebarWidthKey = 'repositories-sidebar/width'
 const SidebarCollapsedKey = 'repositories-sidebar/collapsed'
+const ShowSidebarKey = 'repositories-sidebar/visible'
 
 export const DefaultSidebarWidth = 220
 export const MinSidebarWidth = 150
@@ -314,4 +315,20 @@ export function getSidebarCollapsed(): boolean {
 /** Persist whether the repositories sidebar is collapsed. */
 export function setSidebarCollapsed(collapsed: boolean) {
   setBoolean(SidebarCollapsedKey, collapsed)
+}
+
+/**
+ * Whether the repositories sidebar is shown at all (Preferences →
+ * Appearance). When it's off, repositories are picked from the toolbar's
+ * repository list instead.
+ */
+export function getShowRepositoriesSidebar(): boolean {
+  return getBoolean(ShowSidebarKey, true)
+}
+
+export function setShowRepositoriesSidebar(show: boolean) {
+  if (show !== getShowRepositoriesSidebar()) {
+    setBoolean(ShowSidebarKey, show)
+    notifyChanged()
+  }
 }

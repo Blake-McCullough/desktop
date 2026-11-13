@@ -26,6 +26,14 @@ export type RepositoryListGroup =
       kind: 'enterprise'
       host: string
     }
+  | {
+      /** One of the user's sidebar groups. */
+      kind: 'custom'
+      id: string
+      name: string
+      /** The group's `#rrggbb` color, if it has one. */
+      color?: string
+    }
 
 /**
  * Returns a unique grouping key (string) for a repository group. Doubles as a
@@ -41,6 +49,8 @@ export const getGroupKey = (group: RepositoryListGroup) => {
       return `1:dotcom:${group.owner.login}`
     case 'enterprise':
       return `2:enterprise:${group.host}`
+    case 'custom':
+      return `1:custom:${group.id}`
     case 'other':
       return `3:other`
     default:
@@ -160,7 +170,10 @@ const toSortedListItems = (
           // already grouped by owner. If the repository is in the 'recent'
           // group and has a duplicate name in any group, we need to
           // disambiguate it.
-          ((groupNames.get(title) ?? 0) > 1 && group.kind === 'enterprise') ||
+          ((groupNames.get(title) ?? 0) > 1 &&
+            (group.kind === 'enterprise' ||
+              group.kind === 'custom' ||
+              group.kind === 'other')) ||
           ((allNames.get(title) ?? 0) > 1 && group.kind === 'recent'),
         aheadBehind: repoState?.aheadBehind ?? null,
         changedFilesCount: repoState?.changedFilesCount ?? 0,
@@ -169,4 +182,85 @@ const toSortedListItems = (
     .sort(({ repository: x }, { repository: y }) =>
       caseInsensitiveCompare(getDisplayTitle(x), getDisplayTitle(y))
     )
+}
+
+/** A sidebar group, as far as grouping the repository list is concerned. */
+export interface ISidebarGroup {
+  readonly id: string
+  readonly name: string
+  readonly color?: string
+}
+
+/**
+ * Group repositories the way the sidebar does: the user's groups in name
+ * order (with their colors), then everything else under "Other". With more
+ * than a handful of repositories, recently opened ones are listed first, as
+ * in the default list.
+ *
+ * Groups with no repositories are left out.
+ */
+export function groupRepositoriesBySidebarGroups(
+  repositories: ReadonlyArray<Repositoryish>,
+  localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
+  recentRepositories: ReadonlyArray<number>,
+  sidebarGroups: ReadonlyArray<ISidebarGroup>,
+  assignments: ReadonlyMap<number, string>
+): ReadonlyArray<IFilterListGroup<IRepositoryListItem, RepositoryListGroup>> {
+  const includeRecentGroup = repositories.length > recentRepositoriesThreshold
+  const recentSet = includeRecentGroup ? new Set(recentRepositories) : undefined
+  const groupsById = new Map(sidebarGroups.map(g => [g.id, g]))
+  const groups = new Map<string, RepoGroupItem>()
+
+  const addToGroup = (group: RepositoryListGroup, repo: Repositoryish) => {
+    const key = getGroupKey(group)
+    const existing = groups.get(key)
+    if (existing === undefined) {
+      groups.set(key, { group, repos: [repo] })
+    } else {
+      existing.repos.push(repo)
+    }
+  }
+
+  for (const repo of repositories) {
+    if (recentSet?.has(repo.id) && repo instanceof Repository) {
+      addToGroup({ kind: 'recent' }, repo)
+    }
+
+    const groupId = assignments.get(repo.id)
+    const group = groupId === undefined ? undefined : groupsById.get(groupId)
+    addToGroup(
+      group === undefined
+        ? { kind: 'other' }
+        : {
+            kind: 'custom',
+            id: group.id,
+            name: group.name,
+            color: group.color,
+          },
+      repo
+    )
+  }
+
+  const rank = (g: RepositoryListGroup) =>
+    g.kind === 'recent' ? 0 : g.kind === 'custom' ? 1 : 2
+
+  return Array.from(groups.values())
+    .sort((x, y) => {
+      const byRank = rank(x.group) - rank(y.group)
+      if (byRank !== 0) {
+        return byRank
+      }
+      return x.group.kind === 'custom' && y.group.kind === 'custom'
+        ? caseInsensitiveCompare(x.group.name, y.group.name)
+        : 0
+    })
+    .map(({ group, repos }) => ({
+      identifier: group,
+      items: toSortedListItems(
+        group,
+        repos,
+        localRepositoryStateLookup,
+        groups
+      ),
+    }))
 }

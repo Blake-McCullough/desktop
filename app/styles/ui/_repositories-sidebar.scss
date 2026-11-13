@@ -409,6 +409,12 @@
     }
   }
 
+}
+
+// GitLab job dots and Run buttons: in the sidebar and in the toolbar's
+// repository list.
+.repositories-sidebar,
+.repository-list {
   /* ------------------------------------------------------- gitlab status */
 
   .gitlab-pipeline-status {
@@ -433,7 +439,8 @@
     animation: repositories-sidebar-spin 2.4s linear infinite;
   }
 
-  .repositories-sidebar-item.selected .gitlab-pipeline-awaiting {
+  .repositories-sidebar-item.selected .gitlab-pipeline-awaiting,
+  .list-item.selected .gitlab-pipeline-awaiting {
     border-color: var(--box-selected-active-text-color);
   }
 
@@ -550,7 +557,8 @@
 
   // On the selected (accent-colored) row, use translucent white so the
   // button stays legible.
-  .repositories-sidebar-item.selected .gitlab-job-run-button {
+  .repositories-sidebar-item.selected .gitlab-job-run-button,
+  .list-item.selected .gitlab-job-run-button {
     border-color: rgba(255, 255, 255, 0.85);
     color: var(--box-selected-active-text-color);
 

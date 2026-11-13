@@ -12,6 +12,7 @@ import {
 
 function renderAppearance(alwaysShowWorktreeList = false) {
   const changes: boolean[] = []
+  const sidebarChanges: boolean[] = []
   const props = {
     selectedTheme: ApplicationTheme.Light,
     onSelectedThemeChanged: () => {},
@@ -27,9 +28,12 @@ function renderAppearance(alwaysShowWorktreeList = false) {
     onPreferAbsoluteDatesChanged: () => {},
     alwaysShowWorktreeList,
     onAlwaysShowWorktreeListChanged: (value: boolean) => changes.push(value),
+    showRepositoriesSidebar: true,
+    onShowRepositoriesSidebarChanged: (value: boolean) =>
+      sidebarChanges.push(value),
   }
   const view = render(<Appearance {...props} />)
-  return { ...view, props, changes }
+  return { ...view, props, changes, sidebarChanges }
 }
 
 describe('Appearance preferences', () => {
@@ -72,5 +76,16 @@ describe('Appearance preferences', () => {
 
     fireEvent.click(checkbox)
     assert.deepStrictEqual(changes, [true, false])
+  })
+
+  it('shows the sidebar preference, on by default, and reports changes', () => {
+    const { sidebarChanges } = renderAppearance()
+    const checkbox = screen.getByRole('checkbox', {
+      name: 'Show repositories sidebar',
+    })
+    assert.ok(checkbox instanceof HTMLInputElement)
+    assert.strictEqual(checkbox.checked, true)
+    fireEvent.click(checkbox)
+    assert.deepStrictEqual(sidebarChanges, [false])
   })
 })

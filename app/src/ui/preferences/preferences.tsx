@@ -1,4 +1,8 @@
 import * as React from 'react'
+import {
+  getShowRepositoriesSidebar,
+  setShowRepositoriesSidebar,
+} from '../repositories-list/custom-repository-groups-store'
 import { Account, isDotComAccount } from '../../models/account'
 import { PreferencesTab } from '../../models/preferences'
 import { Dispatcher } from '../dispatcher'
@@ -191,6 +195,7 @@ interface IPreferencesState {
 
   readonly initiallySelectedTheme: ApplicationTheme
   readonly initiallySelectedTabSize: number
+  readonly showRepositoriesSidebar: boolean
   readonly alwaysShowWorktreeList: boolean
 
   readonly isLoadingGitConfig: boolean
@@ -283,6 +288,7 @@ export class Preferences extends React.Component<
       initiallySelectedTheme: this.props.selectedTheme,
       initiallySelectedTabSize: this.props.selectedTabSize,
       alwaysShowWorktreeList: this.props.alwaysShowWorktreeList,
+      showRepositoriesSidebar: getShowRepositoriesSidebar(),
       isLoadingGitConfig: true,
       underlineLinks: this.props.underlineLinks,
       showDiffCheckMarks: this.props.showDiffCheckMarks,
@@ -729,6 +735,10 @@ export class Preferences extends React.Component<
             onAlwaysShowWorktreeListChanged={
               this.onAlwaysShowWorktreeListChanged
             }
+            showRepositoriesSidebar={this.state.showRepositoriesSidebar}
+            onShowRepositoriesSidebarChanged={
+              this.onShowRepositoriesSidebarChanged
+            }
             selectedDateFormat={
               this.state.selectedDateFormat ?? getDateFormatPreference()
             }
@@ -1089,6 +1099,12 @@ export class Preferences extends React.Component<
     this.setState({ alwaysShowWorktreeList })
   }
 
+  private onShowRepositoriesSidebarChanged = (
+    showRepositoriesSidebar: boolean
+  ) => {
+    this.setState({ showRepositoriesSidebar })
+  }
+
   private renderFooter() {
     const hasDisabledError = this.state.disallowedCharactersMessage != null
 
@@ -1276,6 +1292,7 @@ export class Preferences extends React.Component<
 
     dispatcher.setDiffCheckMarksSetting(this.state.showDiffCheckMarks)
     dispatcher.setAlwaysShowWorktreeList(this.state.alwaysShowWorktreeList)
+    setShowRepositoriesSidebar(this.state.showRepositoriesSidebar)
 
     dispatcher.setSelectedCopilotModelsByAccount(
       this.state.selectedCopilotModelsByAccount

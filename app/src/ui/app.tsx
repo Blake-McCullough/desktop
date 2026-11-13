@@ -148,6 +148,11 @@ import { RepositoryGroupColorDialog } from './repositories-list/repository-group
 import { ImportRepositoriesDialog } from './repositories-list/import-repositories-dialog'
 import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
 import { MoveRepositoriesDialog } from './repositories-list/move-repositories-dialog'
+import { GitLabPipelinePoller } from './repositories-list/gitlab-pipeline-poller'
+import {
+  getShowRepositoriesSidebar,
+  onCustomGroupsChanged,
+} from './repositories-list/custom-repository-groups-store'
 import { CommitGraphDialog } from './commit-graph/commit-graph-dialog'
 import { CustomUpdateDialog } from './custom-update/custom-update-dialog'
 import { CustomUpdateAvailable } from './banners/custom-update-available'
@@ -276,6 +281,9 @@ export class App extends React.Component<IAppProps, IAppState> {
 
   /** Re-renders when the custom build's update status changes. */
   private customUpdateSubscription: { dispose(): void } | null = null
+  private sidebarSettingSubscription: { dispose(): void } | null = null
+  /** Preferences → Appearance → Show repositories sidebar. */
+  private showRepositoriesSidebar = getShowRepositoriesSidebar()
 
   /**
    * Used on non-macOS platforms to support the Alt key behavior for
@@ -386,6 +394,7 @@ export class App extends React.Component<IAppProps, IAppState> {
   public componentWillUnmount() {
     window.clearInterval(this.updateIntervalHandle)
     this.customUpdateSubscription?.dispose()
+    this.sidebarSettingSubscription?.dispose()
 
     if (__DARWIN__) {
       window.removeEventListener('keydown', this.onMacOSWindowKeyDown)
@@ -1071,6 +1080,13 @@ export class App extends React.Component<IAppProps, IAppState> {
     this.customUpdateSubscription = customUpdateStore.onDidUpdate(() =>
       this.forceUpdate()
     )
+    this.sidebarSettingSubscription = onCustomGroupsChanged(() => {
+      const show = getShowRepositoriesSidebar()
+      if (show !== this.showRepositoriesSidebar) {
+        this.showRepositoriesSidebar = show
+        this.forceUpdate()
+      }
+    })
     customUpdateStore.startAutoCheck()
 
     document.ondragover = e => {
@@ -3501,7 +3517,8 @@ export class App extends React.Component<IAppProps, IAppState> {
       >
         {this.renderToolbar()}
         <div className="app-contents-row">
-          {this.renderRepositoriesSidebar()}
+          {this.renderGitLabPipelinePoller()}
+          {this.showRepositoriesSidebar && this.renderRepositoriesSidebar()}
           <div className="app-main-column">
             {this.renderBanner()}
             {this.renderRepository()}
@@ -3510,6 +3527,18 @@ export class App extends React.Component<IAppProps, IAppState> {
         {this.renderPopups()}
         {this.renderDragElement()}
       </div>
+    )
+  }
+
+  private renderGitLabPipelinePoller() {
+    const selectedRepository = this.state.selectedState?.repository ?? null
+    return (
+      <GitLabPipelinePoller
+        repositories={this.state.repositories}
+        localRepositoryStateLookup={this.state.localRepositoryStateLookup}
+        selectedRepository={selectedRepository}
+        selectedRepositoryTipSha={this.getSelectedRepositoryTipSha()}
+      />
     )
   }
 
@@ -3523,7 +3552,6 @@ export class App extends React.Component<IAppProps, IAppState> {
     return (
       <RepositoriesSidebar
         selectedRepository={selectedRepository}
-        selectedRepositoryTipSha={this.getSelectedRepositoryTipSha()}
         onSelectionChanged={this.onSelectionChanged}
         repositories={this.state.repositories}
         localRepositoryStateLookup={this.state.localRepositoryStateLookup}
