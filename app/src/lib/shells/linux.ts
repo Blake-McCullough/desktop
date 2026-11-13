@@ -1,4 +1,6 @@
 import { spawn, ChildProcess } from 'child_process'
+import * as Path from 'path'
+import { access, constants } from 'fs/promises'
 import { assertNever } from '../fatal-error'
 import { parseEnumValue } from '../enum'
 import { pathExists } from '../path-exists'
@@ -37,8 +39,74 @@ export function parse(label: string): Shell {
   return parseEnumValue(Shell, label) ?? Default
 }
 
+/**
+ * Find a terminal's executable: the usual `/usr/bin` location first, then
+ * every folder on `PATH` (e.g. `/usr/local/bin`, `~/.local/bin`, or a
+ * distribution that installs elsewhere).
+ */
 async function getPathIfAvailable(path: string): Promise<string | null> {
-  return (await pathExists(path)) ? path : null
+  if (await pathExists(path)) {
+    return path
+  }
+
+  const name = Path.basename(path)
+  const dirs = (process.env.PATH ?? '')
+    .split(Path.delimiter)
+    .filter(d => d.length > 0 && Path.isAbsolute(d))
+  for (const dir of new Set(dirs)) {
+    const candidate = Path.join(dir, name)
+    if (await isExecutable(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
+async function isExecutable(path: string) {
+  try {
+    await access(path, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The terminals that belong to the current desktop, best first, so the
+ * default matches what the desktop ships (Konsole on KDE Plasma, for
+ * example, rather than GNOME Terminal).
+ */
+export function getDesktopPreferredShells(
+  desktop = process.env.XDG_CURRENT_DESKTOP ?? ''
+): ReadonlyArray<Shell> {
+  const names = desktop.toLowerCase().split(':')
+  const has = (name: string) => names.includes(name)
+
+  if (has('kde')) {
+    return [Shell.Konsole]
+  }
+  if (has('gnome') || has('ubuntu') || has('unity')) {
+    return [Shell.Ptyxis, Shell.Gnome, Shell.GnomeConsole]
+  }
+  if (has('xfce')) {
+    return [Shell.XFCE]
+  }
+  if (has('mate')) {
+    return [Shell.Mate]
+  }
+  if (has('lxde') || has('lxqt')) {
+    return [Shell.LXTerminal]
+  }
+  if (has('deepin')) {
+    return [Shell.Deepin]
+  }
+  if (has('pantheon')) {
+    return [Shell.Elementary]
+  }
+  if (has('x-cinnamon') || has('cinnamon')) {
+    return [Shell.Gnome]
+  }
+  return []
 }
 
 function getShellPath(shell: Shell): Promise<string | null> {
