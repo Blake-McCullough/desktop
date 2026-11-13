@@ -106,3 +106,101 @@ dialog.clone-repository {
     }
   }
 }
+
+// GitLab tab of the Clone dialog.
+.dialog-content.clone-gitlab-repository-content {
+  &:not(.clone-github-repository-content) {
+    padding: var(--spacing-double);
+  }
+
+  .gitlab-instance-row {
+    margin: 0 var(--spacing-double);
+    padding-bottom: var(--spacing);
+
+    .select-component {
+      flex-grow: 1;
+    }
+  }
+
+  .local-path-field {
+    padding-bottom: var(--spacing);
+  }
+
+  .gitlab-clone-options,
+  .gitlab-sidebar-group-row,
+  .gitlab-truncated-note {
+    padding: 0 var(--spacing-double) var(--spacing);
+  }
+
+  .gitlab-clone-options .select-component {
+    flex-grow: 1;
+  }
+
+  .gitlab-sidebar-group-row {
+    align-items: center;
+    gap: var(--spacing);
+
+    .checkbox-component {
+      flex-shrink: 0;
+    }
+
+    .gitlab-sidebar-group-name {
+      flex-grow: 1;
+    }
+  }
+
+  .gitlab-truncated-note {
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+  }
+
+  .gitlab-group-header {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+
+    .icon {
+      fill: var(--text-secondary-color);
+      margin-right: var(--spacing-half);
+      flex-shrink: 0;
+    }
+
+    .gitlab-group-path {
+      flex-grow: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .gitlab-group-parent {
+      color: var(--text-secondary-color);
+      font-weight: normal;
+    }
+
+    .gitlab-group-separator {
+      opacity: 0.6;
+    }
+
+    .gitlab-group-name {
+      font-weight: 600;
+    }
+
+    .gitlab-group-count {
+      flex-shrink: 0;
+      margin-left: var(--spacing-half);
+      color: var(--text-secondary-color);
+      font-size: var(--font-size-xs);
+      font-weight: normal;
+    }
+  }
+
+  .gitlab-load-error {
+    gap: var(--spacing-half);
+    color: var(--error-color);
+
+    .link-button-component {
+      color: var(--link-button-color);
+    }
+  }
+}

@@ -419,6 +419,16 @@ async function gitLabRequest<T>(
   token: string,
   method: 'GET' | 'POST' = 'GET'
 ): Promise<T> {
+  const { body } = await gitLabRequestWithHeaders<T>(url, token, method)
+  return body
+}
+
+/** Like `gitLabRequest`, but also returns the response headers (for paging). */
+async function gitLabRequestWithHeaders<T>(
+  url: string,
+  token: string,
+  method: 'GET' | 'POST' = 'GET'
+): Promise<{ readonly body: T; readonly headers: Headers }> {
   const budget = getBudget(originOf(url))
   let lastError: GitLabApiError | null = null
 
@@ -487,7 +497,10 @@ async function gitLabRequest<T>(
         budget.nextPauseMs = MinRateLimitPauseMs
         // Some endpoints (e.g. play) can legitimately return an empty body.
         const text = await response.text()
-        return (text.length > 0 ? JSON.parse(text) : null) as T
+        return {
+          body: (text.length > 0 ? JSON.parse(text) : null) as T,
+          headers: response.headers,
+        }
       }
 
       let detail = ''
@@ -1038,6 +1051,205 @@ export async function checkGitLabToken(
   }
 
   return { username: user.username, scopes, expiresAt }
+}
+
+/* ---------------------------------------------------------------------------
+ * Projects (for cloning)
+ * ------------------------------------------------------------------------- */
+
+/** A project the user can clone, as listed by `GET /projects`. */
+export interface IGitLabCloneableProject {
+  readonly id: number
+  readonly name: string
+  /** e.g. `acme/backend/api` */
+  readonly pathWithNamespace: string
+  /**
+   * The full path of the group (or user namespace) the project lives in,
+   * e.g. `acme/backend`.
+   */
+  readonly namespaceFullPath: string
+  /** Human readable namespace name, e.g. `Acme / Backend`. */
+  readonly namespaceName: string
+  /** `group` or `user`. */
+  readonly namespaceKind: string
+  readonly httpUrl: string
+  readonly sshUrl: string
+  readonly webUrl: string
+  readonly defaultBranch: string | null
+  readonly visibility: string | null
+  readonly archived: boolean
+  readonly isFork: boolean
+  readonly lastActivityAt: string | null
+}
+
+/** The projects visible to a token on one instance. */
+export interface IGitLabProjectList {
+  /** The username the token belongs to. */
+  readonly username: string
+  readonly projects: ReadonlyArray<IGitLabCloneableProject>
+  /** True when the list was cut off at `MaxProjectPages` pages. */
+  readonly truncated: boolean
+}
+
+interface IApiProject {
+  readonly id: number
+  readonly name: string
+  readonly path_with_namespace: string
+  readonly http_url_to_repo?: string
+  readonly ssh_url_to_repo?: string
+  readonly web_url?: string
+  readonly default_branch?: string | null
+  readonly visibility?: string
+  readonly archived?: boolean
+  readonly forked_from_project?: unknown
+  readonly last_activity_at?: string
+  readonly namespace?: {
+    readonly name?: string
+    readonly full_path?: string
+    readonly kind?: string
+  }
+}
+
+/** At 100 projects per page this lists up to 2000 projects. */
+const MaxProjectPages = 20
+
+/** Parse an API project, or return null for a malformed entry. */
+export function toCloneableProject(
+  p: IApiProject
+): IGitLabCloneableProject | null {
+  if (
+    p === null ||
+    typeof p !== 'object' ||
+    typeof p.id !== 'number' ||
+    typeof p.path_with_namespace !== 'string' ||
+    typeof p.http_url_to_repo !== 'string'
+  ) {
+    return null
+  }
+
+  const slash = p.path_with_namespace.lastIndexOf('/')
+  const namespaceFullPath =
+    p.namespace?.full_path ??
+    (slash > 0 ? p.path_with_namespace.slice(0, slash) : '')
+
+  return {
+    id: p.id,
+    name: typeof p.name === 'string' ? p.name : p.path_with_namespace,
+    pathWithNamespace: p.path_with_namespace,
+    namespaceFullPath,
+    namespaceName: p.namespace?.name ?? namespaceFullPath,
+    namespaceKind: p.namespace?.kind ?? 'group',
+    httpUrl: p.http_url_to_repo,
+    sshUrl: p.ssh_url_to_repo ?? '',
+    webUrl: p.web_url ?? '',
+    defaultBranch: p.default_branch ?? null,
+    visibility: p.visibility ?? null,
+    archived: p.archived === true,
+    isFork:
+      p.forked_from_project !== undefined && p.forked_from_project !== null,
+    lastActivityAt: p.last_activity_at ?? null,
+  }
+}
+
+interface ICachedProjectList {
+  readonly token: string
+  readonly fetchedAt: number
+  readonly result: Promise<IGitLabProjectList>
+}
+
+/** Listing is cached per instance for this long, unless refreshed. */
+const ProjectListCacheMs = 10 * 60 * 1000
+const projectListCache = new Map<string, ICachedProjectList>()
+
+/**
+ * List every project the token is a member of (directly or through a
+ * group) on an instance, most recently active first.
+ *
+ * Results are cached per instance for ten minutes, and concurrent callers
+ * share one request; pass `refresh` to bypass the cache. Pages go through the
+ * same rate budget as pipeline polling.
+ */
+export function fetchGitLabProjects(
+  webBaseUrl: string,
+  token: string,
+  refresh = false
+): Promise<IGitLabProjectList> {
+  const cached = projectListCache.get(webBaseUrl)
+  if (
+    !refresh &&
+    cached !== undefined &&
+    cached.token === token &&
+    Date.now() - cached.fetchedAt < ProjectListCacheMs
+  ) {
+    return cached.result
+  }
+
+  const result = loadGitLabProjects(webBaseUrl, token)
+  projectListCache.set(webBaseUrl, { token, fetchedAt: Date.now(), result })
+  // Don't keep a failure around; the next call should try again.
+  result.catch(() => {
+    if (projectListCache.get(webBaseUrl)?.result === result) {
+      projectListCache.delete(webBaseUrl)
+    }
+  })
+  return result
+}
+
+/** Forget cached project lists (e.g. after the token changes). */
+export function clearGitLabProjectCache() {
+  projectListCache.clear()
+}
+
+async function loadGitLabProjects(
+  webBaseUrl: string,
+  token: string
+): Promise<IGitLabProjectList> {
+  const user = await gitLabRequest<{ username: string }>(
+    apiUrl({ webBaseUrl }, '/user'),
+    token
+  )
+
+  const projects = new Map<number, IGitLabCloneableProject>()
+  let page: string | null = '1'
+  let pages = 0
+
+  while (page !== null && pages < MaxProjectPages) {
+    const query: URLSearchParams = new URLSearchParams({
+      membership: 'true',
+      per_page: '100',
+      order_by: 'last_activity_at',
+      sort: 'desc',
+      statistics: 'false',
+      page,
+    })
+    const response: { body: unknown; headers: Headers } =
+      await gitLabRequestWithHeaders<unknown>(
+        apiUrl({ webBaseUrl }, `/projects?${query}`),
+        token
+      )
+    pages++
+    const { body, headers } = response
+
+    if (!Array.isArray(body)) {
+      break
+    }
+
+    for (const raw of body) {
+      const project = toCloneableProject(raw)
+      if (project !== null) {
+        projects.set(project.id, project)
+      }
+    }
+
+    const next: string = headers.get('x-next-page')?.trim() ?? ''
+    page = /^\d+$/.test(next) && body.length > 0 ? next : null
+  }
+
+  return {
+    username: user?.username ?? '',
+    projects: [...projects.values()],
+    truncated: page !== null,
+  }
 }
 
 /* ---------------------------------------------------------------------------

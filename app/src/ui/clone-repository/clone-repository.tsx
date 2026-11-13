@@ -23,6 +23,24 @@ import { TabBar } from '../tab-bar'
 import { CloneRepositoryTab } from '../../models/clone-repository-tab'
 import { CloneGenericRepository } from './clone-generic-repository'
 import { CloneGithubRepository } from './clone-github-repository'
+import {
+  CloneGitLabRepository,
+  IGitLabCloneSelection,
+} from './clone-gitlab-repository'
+import {
+  getGitLabCloneAddToGroup,
+  getGitLabCloneUseSsh,
+  rememberGitLabCredential,
+  setGitLabCloneAddToGroup,
+  setGitLabCloneUseSsh,
+} from '../../lib/gitlab/gitlab-clone'
+import { getGitLabToken } from '../../lib/gitlab/gitlab-token'
+import {
+  findOrCreateGroupByName,
+  setRepositoryGroup,
+} from '../repositories-list/custom-repository-groups-store'
+import { PopupType } from '../../models/popup'
+import { PreferencesTab } from '../../models/preferences'
 import { assertNever } from '../../lib/fatal-error'
 import { CallToAction } from '../lib/call-to-action'
 import { IAccountRepositories } from '../../lib/stores/api-repositories-store'
@@ -111,6 +129,9 @@ interface ICloneRepositoryState {
    * The persisted state of the CloneGenericRepository component.
    */
   readonly urlTabState: IUrlTabState
+
+  /** The persisted state of the CloneGitLabRepository component. */
+  readonly gitLabTabState: IGitLabTabState
 }
 
 /**
@@ -156,6 +177,16 @@ interface IGitHubTabState extends IBaseTabState {
   readonly selectedItem: IAPIRepository | null
 }
 
+/** Persisted state for the CloneGitLabRepository component. */
+interface IGitLabTabState extends IBaseTabState {
+  readonly kind: 'gitLabTabState'
+  readonly filterText: string
+  readonly selection: IGitLabCloneSelection | null
+  readonly useSsh: boolean
+  readonly addToSidebarGroup: boolean
+  readonly sidebarGroupName: string
+}
+
 /** What to clone, captured when the user starts cloning. */
 interface ICloneRequest {
   readonly tab: CloneRepositoryTab
@@ -168,6 +199,14 @@ interface ICloneRequest {
    * URL tab.
    */
   readonly account: Account | null
+
+  /** The GitLab project and clone options, when cloning from the GitLab tab. */
+  readonly gitLab: {
+    readonly selection: IGitLabCloneSelection
+    readonly useSsh: boolean
+    /** The sidebar group to add the clone to, or null for none. */
+    readonly sidebarGroupName: string | null
+  } | null
 }
 
 /** The component for cloning a repository. */
@@ -233,6 +272,17 @@ export class CloneRepository extends React.Component<
         kind: 'urlTabState',
         ...initialBaseTabState,
       },
+      gitLabTabState: {
+        kind: 'gitLabTabState',
+        filterText: '',
+        selection: null,
+        useSsh: getGitLabCloneUseSsh(),
+        addToSidebarGroup: getGitLabCloneAddToGroup(),
+        sidebarGroupName: '',
+        ...initialBaseTabState,
+        // The URL is only ever set by picking a project.
+        url: '',
+      },
     }
 
     this.gitHubTabAccount = this.getSelectedAccount()
@@ -284,7 +334,8 @@ export class CloneRepository extends React.Component<
     const initialPath = await getDefaultDir()
     const gitHubTabState = { ...this.state.gitHubTabState, path: initialPath }
     const urlTabState = { ...this.state.urlTabState, path: initialPath }
-    this.setState({ initialPath, gitHubTabState, urlTabState })
+    const gitLabTabState = { ...this.state.gitLabTabState, path: initialPath }
+    this.setState({ initialPath, gitHubTabState, urlTabState, gitLabTabState })
 
     // Update the local path based on the current url now that we have an
     // initial path
@@ -309,6 +360,7 @@ export class CloneRepository extends React.Component<
         >
           <span id="github-tab">GitHub</span>
           <span id="url-tab">URL</span>
+          <span id="gitlab-tab">GitLab</span>
         </TabBar>
 
         {error ? <DialogError>{error.message}</DialogError> : null}
@@ -323,9 +375,14 @@ export class CloneRepository extends React.Component<
   }
 
   private getSelectedTabId = () => {
-    return this.props.selectedTab === CloneRepositoryTab.GitHub
-      ? 'github-tab'
-      : 'url-tab'
+    switch (this.props.selectedTab) {
+      case CloneRepositoryTab.GitHub:
+        return 'github-tab'
+      case CloneRepositoryTab.GitLab:
+        return 'gitlab-tab'
+      default:
+        return 'url-tab'
+    }
   }
 
   private checkIfCloningDisabled = () => {
@@ -431,9 +488,131 @@ export class CloneRepository extends React.Component<
           />
         )
       }
+      case CloneRepositoryTab.GitLab: {
+        const tabState = this.state.gitLabTabState
+        return (
+          <CloneGitLabRepository
+            path={tabState.path ?? ''}
+            onPathChanged={this.onPathChanged}
+            onChooseDirectory={this.onChooseDirectory}
+            selection={tabState.selection}
+            onSelectionChanged={this.onGitLabSelectionChanged}
+            onProjectActivated={this.onGitLabProjectActivated}
+            filterText={tabState.filterText}
+            onFilterTextChanged={this.onGitLabFilterTextChanged}
+            useSsh={tabState.useSsh}
+            onUseSshChanged={this.onGitLabUseSshChanged}
+            addToSidebarGroup={tabState.addToSidebarGroup}
+            onAddToSidebarGroupChanged={this.onGitLabAddToGroupChanged}
+            sidebarGroupName={tabState.sidebarGroupName}
+            onSidebarGroupNameChanged={this.onGitLabGroupNameChanged}
+            onOpenGitLabPreferences={this.onOpenGitLabPreferences}
+          />
+        )
+      }
       default:
         return assertNever(tab, `Unknown tab: ${tab}`)
     }
+  }
+
+  private setGitLabTabState<K extends keyof IGitLabTabState>(
+    tabState: Pick<IGitLabTabState, K>
+  ): void {
+    this.setState(prevState => ({
+      gitLabTabState: merge(prevState.gitLabTabState, tabState),
+    }))
+  }
+
+  private getGitLabCloneUrl(selection: IGitLabCloneSelection | null) {
+    if (selection === null) {
+      return ''
+    }
+    const { project } = selection
+    return this.state.gitLabTabState.useSsh && project.sshUrl.length > 0
+      ? project.sshUrl
+      : project.httpUrl
+  }
+
+  private getGitLabIdentifier(
+    selection: IGitLabCloneSelection | null
+  ): IRepositoryIdentifier | null {
+    if (selection === null) {
+      return null
+    }
+    const { pathWithNamespace, namespaceFullPath } = selection.project
+    return {
+      owner: namespaceFullPath,
+      name: pathWithNamespace.split('/').at(-1) ?? pathWithNamespace,
+      hostname: null,
+    }
+  }
+
+  private onGitLabSelectionChanged = (
+    selection: IGitLabCloneSelection | null
+  ) => {
+    // Default the sidebar group to the project's GitLab group. The user's
+    // personal namespace isn't a useful group, so leave that blank.
+    const project = selection?.project
+    const sidebarGroupName =
+      project === undefined || project.namespaceKind === 'user'
+        ? ''
+        : project.namespaceFullPath
+    this.setGitLabTabState({ selection, sidebarGroupName })
+    this.updateUrl(
+      this.getGitLabCloneUrl(selection),
+      this.getGitLabIdentifier(selection)
+    )
+  }
+
+  private onGitLabProjectActivated = () => {
+    // Let the selection's URL and path land before checking.
+    window.setTimeout(() => {
+      if (
+        this.mounted &&
+        this.props.selectedTab === CloneRepositoryTab.GitLab &&
+        this.checkIfCloningDisabled() === false
+      ) {
+        this.clone()
+      }
+    }, 0)
+  }
+
+  private onGitLabFilterTextChanged = (filterText: string) => {
+    this.setGitLabTabState({ filterText })
+  }
+
+  private onGitLabUseSshChanged = (useSsh: boolean) => {
+    setGitLabCloneUseSsh(useSsh)
+    this.setState(
+      prevState => ({
+        gitLabTabState: { ...prevState.gitLabTabState, useSsh },
+      }),
+      () => {
+        const { selection } = this.state.gitLabTabState
+        if (selection !== null) {
+          this.updateUrl(
+            this.getGitLabCloneUrl(selection),
+            this.getGitLabIdentifier(selection)
+          )
+        }
+      }
+    )
+  }
+
+  private onGitLabAddToGroupChanged = (addToSidebarGroup: boolean) => {
+    setGitLabCloneAddToGroup(addToSidebarGroup)
+    this.setGitLabTabState({ addToSidebarGroup })
+  }
+
+  private onGitLabGroupNameChanged = (sidebarGroupName: string) => {
+    this.setGitLabTabState({ sidebarGroupName })
+  }
+
+  private onOpenGitLabPreferences = () => {
+    this.props.dispatcher.showPopup({
+      type: PopupType.Preferences,
+      initialSelectedTab: PreferencesTab.GitLab,
+    })
   }
 
   private onSelectedAccountChanged = (account: Account) => {
@@ -500,6 +679,8 @@ export class CloneRepository extends React.Component<
       return this.state.gitHubTabState
     } else if (tab === CloneRepositoryTab.Generic) {
       return this.state.urlTabState
+    } else if (tab === CloneRepositoryTab.GitLab) {
+      return this.state.gitLabTabState
     } else {
       return assertNever(tab, `Unknown tab: ${tab}`)
     }
@@ -542,6 +723,13 @@ export class CloneRepository extends React.Component<
       this.setState(
         prevState => ({
           urlTabState: { ...prevState.urlTabState, ...state },
+        }),
+        callback
+      )
+    } else if (tab === CloneRepositoryTab.GitLab) {
+      this.setState(
+        prevState => ({
+          gitLabTabState: { ...prevState.gitLabTabState, ...state },
         }),
         callback
       )
@@ -688,8 +876,19 @@ export class CloneRepository extends React.Component<
     return path
   }
 
-  private updateUrl = async (url: string) => {
-    const parsed = parseRepositoryIdentifier(url)
+  /**
+   * Set the URL to clone and update the local path's last segment to match.
+   *
+   * `identifier` can be passed when the caller already knows the repository
+   * (the GitLab tab), since nested group paths like `git@host:a/b/c.git`
+   * can't be parsed back into a name.
+   */
+  private updateUrl = async (
+    url: string,
+    identifier?: IRepositoryIdentifier | null
+  ) => {
+    const parsed =
+      identifier !== undefined ? identifier : parseRepositoryIdentifier(url)
     const tabState = this.getSelectedTabState()
     const lastParsedIdentifier = tabState.lastParsedIdentifier
 
@@ -802,6 +1001,11 @@ export class CloneRepository extends React.Component<
       return resolveURLCloneInfo(url, this.props.accounts)
     }
 
+    if (tab === CloneRepositoryTab.GitLab) {
+      const defaultBranch = request.gitLab?.selection.project.defaultBranch
+      return defaultBranch ? { url, defaultBranch } : { url }
+    }
+
     if (lastParsedIdentifier !== null && account !== null) {
       const api = API.fromAccount(account)
       const { owner, name } = lastParsedIdentifier
@@ -866,6 +1070,10 @@ export class CloneRepository extends React.Component<
       this.setSelectedTabState({ error: currentPathError })
       return
     }
+    if (request.gitLab !== null && !request.gitLab.useSsh) {
+      await this.rememberGitLabCredential(request.gitLab.selection, url)
+    }
+
     this.props.dispatcher.closeFoldout(FoldoutType.Repository)
     try {
       this.cloneImpl(request, url.trim(), path, defaultBranch)
@@ -880,6 +1088,8 @@ export class CloneRepository extends React.Component<
   private getCloneRequest(): ICloneRequest {
     const tab = this.props.selectedTab
     const { url, lastParsedIdentifier, path } = this.getTabState(tab)
+    const gitLabState = this.state.gitLabTabState
+    const groupName = gitLabState.sidebarGroupName.trim()
     return {
       tab,
       url,
@@ -887,6 +1097,36 @@ export class CloneRepository extends React.Component<
       path,
       account:
         tab === CloneRepositoryTab.GitHub ? this.getSelectedAccount() : null,
+      gitLab:
+        tab === CloneRepositoryTab.GitLab && gitLabState.selection !== null
+          ? {
+              selection: gitLabState.selection,
+              useSsh: gitLabState.useSsh,
+              sidebarGroupName:
+                gitLabState.addToSidebarGroup && groupName.length > 0
+                  ? groupName
+                  : null,
+            }
+          : null,
+    }
+  }
+
+  /**
+   * Save the GitLab token as the Git credential for the project's host so the
+   * HTTPS clone doesn't ask for a password. Never replaces a saved one.
+   */
+  private async rememberGitLabCredential(
+    selection: IGitLabCloneSelection,
+    url: string
+  ) {
+    try {
+      const token = await getGitLabToken()
+      if (token !== null) {
+        await rememberGitLabCredential(url, selection.username, token)
+      }
+    } catch (e) {
+      // Git will prompt instead.
+      log.warn('CloneRepository: could not save GitLab credential', e)
     }
   }
 
@@ -896,8 +1136,8 @@ export class CloneRepository extends React.Component<
     path: string,
     defaultBranch?: string
   ) {
-    const { account } = request
-    this.props.dispatcher.clone(
+    const { account, gitLab } = request
+    const cloned = this.props.dispatcher.clone(
       url,
       path,
       account === null
@@ -907,6 +1147,21 @@ export class CloneRepository extends React.Component<
             account: { endpoint: account.endpoint, login: account.login },
           }
     )
+
+    const groupName = gitLab?.sidebarGroupName ?? null
+    if (groupName !== null) {
+      cloned
+        .then(repository => {
+          if (repository !== null) {
+            const group = findOrCreateGroupByName(groupName)
+            setRepositoryGroup(repository.id, group.id)
+          }
+        })
+        .catch(e =>
+          log.error('CloneRepository: failed to add clone to group', e)
+        )
+    }
+
     this.props.onDismissed()
 
     setDefaultDir(Path.resolve(path, '..'))

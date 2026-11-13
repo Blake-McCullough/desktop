@@ -62,11 +62,17 @@ From the sidebar's **+** menu:
 Set a personal access token in **Preferences → GitLab** (`read_api` to view,
 `api` to also run manual jobs).
 
-- **Sidebar**: a dot per job for each repository's current commit; running
-  jobs pulse, and clicking a dot opens the job in GitLab. Manual jobs show a
-  **▶ Run** button. If the checked-out commit has no pipeline yet, the
-  branch's latest pipeline is shown with a dashed outline.
+- **Sidebar**: a dot per job for the latest commit you've pushed on the
+  current branch; running jobs pulse, and clicking a dot opens the job in
+  GitLab. Manual jobs show a **▶ Run** button. Right after a push, the
+  sidebar waits for that commit's pipeline rather than showing an older one.
 - **History**: a dot per job for every commit; click to open the pipeline.
+- **Clone from GitLab**: **File → Clone repository → GitLab** lists every
+  project your token can see, grouped by GitLab group and subgroup, with a
+  filter and an instance picker if you use more than one instance. Cloning
+  over HTTPS uses your token, so there's no password prompt. The clone is
+  added to a sidebar group named after its GitLab group (you can rename it or
+  untick the box).
 - **Self-hosted GitLab**: hosts with "gitlab" in the name are detected
   automatically, other servers are detected by asking them, and you can list
   instances (including ones on a sub path) in Preferences.
