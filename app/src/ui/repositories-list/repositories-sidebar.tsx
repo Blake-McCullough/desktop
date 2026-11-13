@@ -540,6 +540,7 @@ export class RepositoriesSidebar extends React.PureComponent<
         ? this.onCreateWorktree
         : undefined,
       onViewHistoryGraph: this.onViewHistoryGraph,
+      onMoveRepository: this.onMoveRepository,
       onShowWorktrees: enableWorktreeSupport()
         ? this.onShowWorktrees
         : undefined,
@@ -565,6 +566,34 @@ export class RepositoriesSidebar extends React.PureComponent<
     })
   }
 
+  private onMoveRepository = (repository: Repository) => {
+    this.showMoveRepositories([repository])
+  }
+
+  private showMoveRepositories(
+    repositories: ReadonlyArray<Repositoryish>,
+    label?: string
+  ) {
+    const movable = repositories.filter(
+      (r): r is Repository => r instanceof Repository
+    )
+    if (movable.length === 0) {
+      return
+    }
+    this.props.dispatcher.showPopup({
+      type: PopupType.MoveRepositories,
+      repositories: movable,
+      label,
+    })
+  }
+
+  /** Every repository in a group, ignoring the filter. */
+  private getGroupRepositories(groupId: string) {
+    return this.props.repositories.filter(
+      r => (this.state.repositoryGroups.get(r.id) ?? OtherGroupId) === groupId
+    )
+  }
+
   private onShowWorktrees = (repository: Repository) => {
     this.props.dispatcher.showPopup({
       type: PopupType.WorktreeViewer,
@@ -588,12 +617,27 @@ export class RepositoriesSidebar extends React.PureComponent<
       { label: 'Expand all groups', action: () => this.onCollapseAll(false) },
     ]
 
+    const groupRepositories = this.getGroupRepositories(section.id)
+    const moveGroup: IMenuItem = {
+      label: __DARWIN__ ? 'Move Group’s Folders…' : 'Move group’s folders…',
+      action: () =>
+        this.showMoveRepositories(
+          groupRepositories,
+          section.isOther ? undefined : section.name
+        ),
+      enabled: groupRepositories.some(
+        r => r instanceof Repository && !r.missing
+      ),
+    }
+
     if (section.isOther) {
-      showContextualMenu(common.slice(1))
+      showContextualMenu([moveGroup, ...common])
       return
     }
 
     showContextualMenu([
+      moveGroup,
+      { type: 'separator' },
       {
         label: 'Rename group…',
         action: () => this.onRenameGroup(section.id, section.name),
@@ -816,6 +860,15 @@ export class RepositoriesSidebar extends React.PureComponent<
         label: __DARWIN__ ? 'Export Repositories…' : 'Export repositories…',
         action: this.onExportClick,
         enabled: this.props.repositories.length > 0,
+      },
+      {
+        label: __DARWIN__
+          ? 'Move All Repository Folders…'
+          : 'Move all repository folders…',
+        action: () => this.showMoveRepositories(this.props.repositories),
+        enabled: this.props.repositories.some(
+          r => r instanceof Repository && !r.missing
+        ),
       },
     ]
 

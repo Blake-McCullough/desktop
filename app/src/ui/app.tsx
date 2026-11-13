@@ -147,6 +147,7 @@ import { RepositoryGroupNameDialog } from './repositories-list/repository-group-
 import { RepositoryGroupColorDialog } from './repositories-list/repository-group-color-dialog'
 import { ImportRepositoriesDialog } from './repositories-list/import-repositories-dialog'
 import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
+import { MoveRepositoriesDialog } from './repositories-list/move-repositories-dialog'
 import { CommitGraphDialog } from './commit-graph/commit-graph-dialog'
 import { CustomUpdateDialog } from './custom-update/custom-update-dialog'
 import { CustomUpdateAvailable } from './banners/custom-update-available'
@@ -2654,6 +2655,17 @@ export class App extends React.Component<IAppProps, IAppState> {
             key="worktree-viewer"
             dispatcher={this.props.dispatcher}
             repository={popup.repository}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
+      case PopupType.MoveRepositories: {
+        return (
+          <MoveRepositoriesDialog
+            key="move-repositories"
+            dispatcher={this.props.dispatcher}
+            repositories={popup.repositories}
+            label={popup.label}
             onDismissed={onPopupDismissedFn}
           />
         )

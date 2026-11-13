@@ -1,4 +1,8 @@
 import { Disposable } from 'event-kit'
+import type {
+  IRepositoryMovePlan,
+  IRepositoryMoveResult,
+} from '../../lib/move-repository'
 
 import {
   IAPIOrganization,
@@ -2011,6 +2015,14 @@ export class Dispatcher {
   /**
    * Update the location of an existing repository and clear the missing flag.
    */
+  /** Move repositories' folders on disk; see `AppStore._moveRepositories`. */
+  public moveRepositories(
+    plans: ReadonlyArray<IRepositoryMovePlan<Repository>>,
+    onProgress?: (repository: Repository) => void
+  ): Promise<ReadonlyArray<IRepositoryMoveResult<Repository>>> {
+    return this.appStore._moveRepositories(plans, onProgress)
+  }
+
   public relocateRepository(repository: Repository): Promise<void> {
     return this.appStore._relocateRepository(repository)
   }

@@ -36,6 +36,8 @@ interface IRepositoryListItemContextMenuConfig {
   onShowRepositorySettings: (repository: Repository) => void
   /** Opens the history graph window; omitted where it isn't available. */
   onViewHistoryGraph?: (repository: Repository) => void
+  /** Move the repository's folder somewhere else on disk. */
+  onMoveRepository?: (repository: Repository) => void
 
   /**
    * The custom groups the repository could be moved into. When provided
@@ -86,6 +88,16 @@ export const generateRepositoryListContextMenu = (
     ...buildGroupMenuItems(config),
     ...buildAccountMenuItems(config),
     ...buildRepositorySettingsMenuItems(config),
+    ...(repository instanceof Repository &&
+    config.onMoveRepository !== undefined
+      ? [
+          {
+            label: __DARWIN__ ? 'Move Folder…' : 'Move folder…',
+            action: () => config.onMoveRepository?.(repository),
+            enabled: !missing,
+          },
+        ]
+      : []),
     {
       label: __DARWIN__ ? 'Copy Repo Name' : 'Copy repo name',
       action: () => writeClipboardText(repository.name),

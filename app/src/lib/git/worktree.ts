@@ -185,3 +185,32 @@ export async function moveWorktree(
     'moveWorktree'
   )
 }
+
+/**
+ * Move a linked worktree with `git worktree move`, which also updates the
+ * main repository's record of where it is. Run from the main worktree so the
+ * process isn't sitting inside the folder being moved.
+ */
+export async function moveLinkedWorktree(
+  mainWorktreePath: string,
+  from: string,
+  to: string
+): Promise<void> {
+  await git(
+    ['worktree', 'move', from, to],
+    mainWorktreePath,
+    'moveLinkedWorktree'
+  )
+}
+
+/**
+ * Repair the links between a repository and its worktrees after the main
+ * worktree (or a linked one) has been moved by hand. Harmless when there are
+ * no linked worktrees.
+ */
+export async function repairWorktrees(
+  path: string,
+  worktreePaths: ReadonlyArray<string> = []
+): Promise<void> {
+  await git(['worktree', 'repair', ...worktreePaths], path, 'repairWorktrees')
+}

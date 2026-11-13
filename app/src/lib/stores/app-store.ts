@@ -1,5 +1,12 @@
 import { storePushAfterAssistedCommit } from './helpers/assisted-commit-push-storage'
 import {
+  IRepositoryMovePlan,
+  IRepositoryMoveResult,
+  isSamePath,
+  movedPath,
+  moveFolder,
+} from '../move-repository'
+import {
   AssistedCommitPushOutcome as PushBranchOutcome,
   IAssistedCommitPushObserver,
 } from '../assisted-commit/types'
@@ -257,6 +264,8 @@ import {
   getRepositoryType,
   RepositoryType,
   listWorktrees,
+  moveLinkedWorktree,
+  repairWorktrees,
   addWorktree,
   IAddWorktreeOptions,
   setConfigValue,
@@ -9935,6 +9944,168 @@ export class AppStore extends TypedBaseStore<IAppState> {
         this.emitError(new Error(this.getInvalidRepoPathsMessage([path])))
       }
     })
+  }
+
+  /**
+   * Move repositories' folders on disk and update the app to match.
+   *
+   * Main worktrees are moved first (and their linked worktrees repaired),
+   * then linked worktrees (with `git worktree move`), then repositories that
+   * were carried along inside a moved folder have their paths updated. One
+   * failure doesn't stop the others; the result says what happened to each.
+   */
+  public async _moveRepositories(
+    plans: ReadonlyArray<IRepositoryMovePlan<Repository>>,
+    onProgress?: (repository: Repository) => void
+  ): Promise<ReadonlyArray<IRepositoryMoveResult<Repository>>> {
+    const results = new Map<number, IRepositoryMoveResult<Repository>>()
+    const moved: Array<{ from: string; to: string }> = []
+
+    const toMove = plans.filter(p => p.action === 'move')
+    const kinds = new Map<number, { mainWorktreePath: string | undefined }>()
+    for (const plan of toMove) {
+      const main = await this.findMainWorktreePath(plan.from)
+      kinds.set(plan.repository.id, { mainWorktreePath: main })
+    }
+    const isLinked = (plan: IRepositoryMovePlan<Repository>) => {
+      const main = kinds.get(plan.repository.id)?.mainWorktreePath
+      return main !== undefined && !isSamePath(main, plan.from)
+    }
+
+    const ordered = [
+      ...toMove.filter(p => !isLinked(p)),
+      ...toMove.filter(p => isLinked(p)),
+    ]
+
+    for (const plan of ordered) {
+      const repository = this.findCurrentRepository(plan.repository)
+      onProgress?.(repository)
+      try {
+        this.assistedCommits.state.assertAvailable(repository)
+        const leftOriginalBehind =
+          await this.assistedCommits.state.withDestruction(plan.from, () =>
+            withRepositoryGitOperation(plan.from, 'mutation', async () => {
+              if (isLinked(plan)) {
+                // Where the main worktree is now, if it was moved too.
+                const recordedMain = kinds.get(plan.repository.id)!
+                  .mainWorktreePath!
+                const main = movedPath(recordedMain, moved)
+                await moveLinkedWorktree(main, plan.from, plan.to)
+                return false
+              }
+
+              const result = await moveFolder(plan.from, plan.to)
+              await repairWorktrees(plan.to).catch(e =>
+                log.warn(`Could not repair worktrees in ${plan.to}`, e)
+              )
+              return result.leftOriginalBehind
+            })
+          )
+        moved.push({ from: plan.from, to: plan.to })
+        await this.refreshMovedRepositoryRecord(repository, plan.to)
+        results.set(plan.repository.id, {
+          repository: plan.repository,
+          to: plan.to,
+          error: null,
+          leftOriginalBehind,
+        })
+      } catch (e) {
+        log.error(`Could not move ${plan.from} to ${plan.to}`, e)
+        results.set(plan.repository.id, {
+          repository: plan.repository,
+          to: plan.to,
+          error: e instanceof Error ? e.message : `${e}`,
+          leftOriginalBehind: false,
+        })
+      }
+    }
+
+    // Repositories inside a moved folder: their files moved with it.
+    for (const plan of plans.filter(p => p.action === 'carried')) {
+      const newPath = movedPath(plan.from, moved)
+      if (isSamePath(newPath, plan.from)) {
+        results.set(plan.repository.id, {
+          repository: plan.repository,
+          to: plan.to,
+          error: "The folder it's in wasn't moved.",
+          leftOriginalBehind: false,
+        })
+        continue
+      }
+      try {
+        await this.refreshMovedRepositoryRecord(
+          this.findCurrentRepository(plan.repository),
+          newPath
+        )
+        results.set(plan.repository.id, {
+          repository: plan.repository,
+          to: newPath,
+          error: null,
+          leftOriginalBehind: false,
+        })
+      } catch (e) {
+        results.set(plan.repository.id, {
+          repository: plan.repository,
+          to: newPath,
+          error: e instanceof Error ? e.message : `${e}`,
+          leftOriginalBehind: false,
+        })
+      }
+    }
+
+    // Other repositories (usually linked worktrees) that point into a moved
+    // folder have a stale git directory or main worktree; re-resolve them.
+    if (moved.length > 0) {
+      const handled = new Set(results.keys())
+      for (const repository of this.repositories) {
+        if (handled.has(repository.id) || repository.missing) {
+          continue
+        }
+        const pointsIntoMoved = [repository.gitDir, repository.mainWorktreePath]
+          .filter((p): p is string => p !== undefined)
+          .some(p => !isSamePath(movedPath(p, moved), p))
+        if (pointsIntoMoved) {
+          await this.refreshMovedRepositoryRecord(
+            repository,
+            movedPath(repository.path, moved)
+          ).catch(e =>
+            log.warn(`Could not refresh ${repository.path} after a move`, e)
+          )
+        }
+      }
+    }
+
+    return plans
+      .filter(p => p.action === 'move' || p.action === 'carried')
+      .map(p => results.get(p.repository.id)!)
+  }
+
+  /** The latest version of a repository (paths change as we move things). */
+  private findCurrentRepository(repository: Repository) {
+    return this.repositories.find(r => r.id === repository.id) ?? repository
+  }
+
+  private async refreshMovedRepositoryRecord(
+    repository: Repository,
+    newPath: string
+  ) {
+    const type = await getRepositoryType(newPath)
+    if (type.kind === 'regular') {
+      await this.repositoriesStore.updateRepositoryPath(
+        repository,
+        type.topLevelWorkingDirectory,
+        type.gitDir,
+        await this.findMainWorktreePath(type.topLevelWorkingDirectory)
+      )
+    } else {
+      await this.repositoriesStore.updateRepositoryPath(
+        repository,
+        newPath,
+        undefined,
+        undefined,
+        type.kind === 'missing'
+      )
+    }
   }
 
   public async _removeRepository(
