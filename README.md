@@ -57,6 +57,23 @@ From the sidebar's **+** menu:
   it is kept — and the import adds repositories already on disk, clones the
   missing ones, and recreates your groups.
 
+### Moving repository folders
+
+Move repositories on disk without breaking anything in the app:
+
+- **One repository**: right-click it → **Move folder…**, then pick or type the
+  new location (you can rename the folder too).
+- **A group**: right-click the group header → **Move group’s folders…**.
+- **Everything**: **+** → **Move all repository folders…**.
+
+Several repositories keep their layout under their shared parent folder (for
+example `~/code/work/api` moved to `D:\dev` becomes `D:\dev\work\api`), and
+the dialog previews where each one goes. The app's paths, groups, aliases and
+settings are updated, linked worktrees are repaired, and repositories nested
+inside a moved folder come along. Moving to another drive copies and then
+deletes the original. Nothing is overwritten: a move is refused if something
+already exists at the destination.
+
 ### GitLab CI/CD pipelines
 
 Set a personal access token in **Preferences → GitLab** (`read_api` to view,

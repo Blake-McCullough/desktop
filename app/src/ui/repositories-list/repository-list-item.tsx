@@ -108,7 +108,9 @@ export class RepositoryListItem extends React.Component<
       this.props.repository instanceof Repository
     ) {
       return (
-        nextProps.repository.id !== this.props.repository.id ||
+        // The hash covers the path (and so the name), alias and missing
+        // state, which change when a repository is moved or renamed.
+        nextProps.repository.hash !== this.props.repository.hash ||
         nextProps.matches !== this.props.matches ||
         nextProps.needsDisambiguation !== this.props.needsDisambiguation ||
         nextProps.changedFilesCount !== this.props.changedFilesCount ||

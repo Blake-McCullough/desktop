@@ -134,6 +134,7 @@ export enum PopupType {
   WorktreeViewer = 'WorktreeViewer',
   CommitGraph = 'CommitGraph',
   CustomUpdate = 'CustomUpdate',
+  MoveRepositories = 'MoveRepositories',
 }
 
 interface IBasePopup {
@@ -614,6 +615,12 @@ export type PopupDetail =
   | {
       type: PopupType.WorktreeViewer
       repository: Repository
+    }
+  | {
+      type: PopupType.MoveRepositories
+      repositories: ReadonlyArray<Repository>
+      /** What's being moved, e.g. a group's name. */
+      label?: string
     }
   | {
       type: PopupType.ImportRepositories
