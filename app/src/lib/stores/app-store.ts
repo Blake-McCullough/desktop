@@ -311,6 +311,7 @@ import {
   findShellOrDefault,
   launchCustomShell,
   launchShell,
+  resolveShell,
   parse as parseShell,
   Shell,
 } from '../shells'
@@ -2821,6 +2822,22 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     const shellValue = localStorage.getItem(shellKey)
     this.selectedShell = shellValue ? parseShell(shellValue) : DefaultShell
+    // If that terminal isn't installed (e.g. GNOME Terminal, the Linux
+    // default, on KDE Plasma), use the best one that is, so the menus name
+    // the terminal that will actually open. Not saved: the user's choice in
+    // Options still wins whenever it's available.
+    resolveShell(shellValue ? this.selectedShell : null)
+      .then(shell => {
+        if (shell !== null && shell !== this.selectedShell) {
+          // Don't override a choice made in the meantime.
+          if (localStorage.getItem(shellKey) === shellValue) {
+            this.selectedShell = shell
+            this.emitUpdate()
+            this.updateMenuLabelsForSelectedRepository()
+          }
+        }
+      })
+      .catch(e => log.error('Failed resolving the terminal at startup', e))
 
     this.updateMenuLabelsForSelectedRepository()
 

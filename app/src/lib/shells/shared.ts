@@ -73,15 +73,52 @@ export async function getAvailableShells(): Promise<
   )
 }
 
-/** Find the given shell or the default if the given shell can't be found. */
+/**
+ * Pick the shell to use from those installed: `shell` if it's there,
+ * otherwise the one that best fits this computer.
+ */
+export function chooseShell(
+  available: ReadonlyArray<AnyFoundShell>,
+  shell: Shell | null,
+  preferred: ReadonlyArray<Shell> = []
+): AnyFoundShell | null {
+  const find = (s: Shell) => available.find(f => f.shell === s)
+  return (
+    (shell !== null ? find(shell) : undefined) ??
+    preferred.map(find).find(f => f !== undefined) ??
+    find(Default) ??
+    available[0] ??
+    null
+  )
+}
+
+function getPreferredShells(): ReadonlyArray<Shell> {
+  return __LINUX__ ? Linux.getDesktopPreferredShells() : []
+}
+
+/**
+ * The shell the user picked if it's installed, otherwise the best installed
+ * one (on Linux, the desktop's own terminal), or null if none are.
+ */
+export async function resolveShell(shell: Shell | null): Promise<Shell | null> {
+  const available = await getAvailableShells()
+  return chooseShell(available, shell, getPreferredShells())?.shell ?? null
+}
+
+/**
+ * Find the given shell, or the best installed one if it can't be found.
+ * Throws a `ShellError` when no supported terminal is installed.
+ */
 export async function findShellOrDefault(shell: Shell): Promise<AnyFoundShell> {
   const available = await getAvailableShells()
-  const found = available.find(s => s.shell === shell)
-  if (found) {
-    return found
-  } else {
-    return available.find(s => s.shell === Default)!
+  const found = chooseShell(available, shell, getPreferredShells())
+  if (found === null) {
+    const label = __DARWIN__ ? 'Settings' : 'Options'
+    throw new ShellError(
+      `No supported terminal was found. Install one, or set a custom terminal in ${label} → Integrations.`
+    )
   }
+  return found
 }
 
 /** Launch the given shell at the path. */
