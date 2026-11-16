@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { CustomLinks } from '../../lib/custom-links'
 
 import { TextBox } from '../lib/text-box'
 import { Row } from '../lib/row'
@@ -91,7 +92,7 @@ export class GenericGitAuthentication extends React.Component<
               Depending on your repository's hosting service, you might need to
               use a Personal Access Token (PAT) as your password. Learn more
               about creating a PAT in our{' '}
-              <LinkButton uri="https://github.com/desktop/desktop/tree/development/docs/integrations">
+              <LinkButton uri={CustomLinks.doc('docs/integrations')}>
                 integration docs
               </LinkButton>
               .

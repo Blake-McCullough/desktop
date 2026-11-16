@@ -1,4 +1,4 @@
-export const ReleaseNotesUri =
-  __RELEASE_CHANNEL__ === 'beta'
-    ? 'https://desktop.github.com/release-notes/?env=beta'
-    : 'https://desktop.github.com/release-notes/'
+import { CustomLinks } from '../../lib/custom-links'
+
+/** This custom build's release notes: its GitHub releases. */
+export const ReleaseNotesUri = CustomLinks.releases

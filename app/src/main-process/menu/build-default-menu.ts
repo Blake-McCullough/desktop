@@ -1,4 +1,5 @@
 import { Menu, shell, app, BrowserWindow } from 'electron'
+import { CustomLinks } from '../../lib/custom-links'
 import { ensureItemIds } from './ensure-item-ids'
 import { MenuEvent } from './menu-event'
 import { truncateWithEllipsis } from '../../lib/truncate-with-ellipsis'
@@ -548,7 +549,7 @@ export function buildDefaultMenuTemplate({
     label: __DARWIN__ ? 'Report Issue…' : 'Report issue…',
     click() {
       shell
-        .openExternal('https://github.com/desktop/desktop/issues/new/choose')
+        .openExternal(CustomLinks.newIssue)
         .catch(err => log.error('Failed opening issue creation page', err))
     },
   }
@@ -568,7 +569,7 @@ export function buildDefaultMenuTemplate({
     label: 'Show User Guides',
     click() {
       shell
-        .openExternal('https://docs.github.com/en/desktop')
+        .openExternal(CustomLinks.readme)
         .catch(err => log.error('Failed opening user guides page', err))
     },
   }
