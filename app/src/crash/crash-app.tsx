@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { CustomLinks } from '../lib/custom-links'
 import { ErrorType } from './shared'
 import { TitleBar } from '../ui/window/title-bar'
 import { encodePathAsUrl } from '../lib/path'
@@ -40,7 +41,7 @@ const BottomImageUri = encodePathAsUrl(
   'static/welcome-illustration-left-bottom.svg'
 )
 
-const issuesUri = 'https://github.com/desktop/desktop/issues'
+const issuesUri = CustomLinks.issues
 
 /**
  * Formats an error by attempting to strip out user-identifiable information

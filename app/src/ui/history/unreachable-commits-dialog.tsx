@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { CustomLinks } from '../../lib/custom-links'
 import { Dialog, DialogFooter } from '../dialog'
 import { TabBar } from '../tab-bar'
 import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
@@ -150,7 +151,9 @@ export class UnreachableCommitsDialog extends React.Component<
           ? 'not'
           : ''}{' '}
         in the ancestry path of the most recent commit in your selection.{' '}
-        <LinkButton uri="https://github.com/desktop/desktop/blob/development/docs/learn-more/unreachable-commits.md">
+        <LinkButton
+          uri={CustomLinks.doc('docs/learn-more/unreachable-commits.md')}
+        >
           Learn more about unreachable commits.
         </LinkButton>
       </div>

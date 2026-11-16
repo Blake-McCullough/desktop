@@ -1,4 +1,5 @@
 import { StatsDatabase, ILaunchStats, IDailyMeasures } from './stats-database'
+import { CustomLinks } from '../custom-links'
 import { getVersion } from '../../ui/lib/app-proxy'
 import { hasShownWelcomeFlow } from '../welcome'
 import {
@@ -69,8 +70,7 @@ const StatsEndpoint =
   'https://cafe.github.com/twirp/clientappsfe.observability.v1.TelemetryAPI/RecordEvents'
 
 /** The URL to the stats samples page. */
-export const SamplesURL =
-  'https://github.com/desktop/desktop/blob/development/docs/process/usage-data.md'
+export const SamplesURL = CustomLinks.doc('docs/process/usage-data.md')
 
 const LastDailyStatsReportKey = 'last-daily-stats-report'
 

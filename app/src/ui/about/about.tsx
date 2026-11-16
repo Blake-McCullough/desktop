@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { CustomLinks } from '../../lib/custom-links'
 
 import { Row } from '../lib/row'
 import { Button } from '../lib/button'
@@ -239,10 +240,8 @@ export class About extends React.Component<IAboutProps> {
       <div>
         <p className="no-padding">Looking for the latest features?</p>
         <p className="no-padding">
-          Check out the{' '}
-          <LinkButton uri="https://desktop.github.com/beta">
-            Beta Channel
-          </LinkButton>
+          Every change is released automatically; see the{' '}
+          <LinkButton uri={CustomLinks.releases}>releases</LinkButton>.
         </p>
       </div>
     )

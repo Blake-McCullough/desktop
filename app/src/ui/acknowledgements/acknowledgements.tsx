@@ -1,4 +1,5 @@
 import * as Path from 'path'
+import { CustomLinks } from '../../lib/custom-links'
 import * as Fs from 'fs'
 import * as React from 'react'
 import { getAppPath } from '../lib/app-proxy'
@@ -6,8 +7,8 @@ import { Loading } from '../lib/loading'
 import { LinkButton } from '../lib/link-button'
 import { Dialog, DialogContent, DefaultDialogFooter } from '../dialog'
 
-const WebsiteURL = 'https://desktop.github.com'
-const RepositoryURL = 'https://github.com/desktop/desktop'
+const WebsiteURL = CustomLinks.repository
+const RepositoryURL = CustomLinks.repository
 
 interface IAcknowledgementsProps {
   /** The function to call when the dialog should be dismissed. */
