@@ -3,9 +3,10 @@ import * as Path from 'path'
 import * as os from 'os'
 import { spawn } from 'child_process'
 import { createHash } from 'crypto'
-import { createWriteStream, existsSync } from 'fs'
-import { chmod, mkdir, rename, rm } from 'fs/promises'
+import { createReadStream, createWriteStream, existsSync } from 'fs'
+import { chmod, mkdir, readFile, rename, rm } from 'fs/promises'
 import {
+  findInSquirrelReleases,
   CustomInstallKind,
   CustomUpdateProgress,
   CustomUpdateRepository,
@@ -209,6 +210,159 @@ function runCommand(command: string, args: ReadonlyArray<string>) {
   )
 }
 
+function sha1File(path: string) {
+  return new Promise<string>((resolve, reject) => {
+    const hash = createHash('sha1')
+    createReadStream(path)
+      .on('data', chunk => hash.update(chunk))
+      .on('error', reject)
+      .on('end', () => resolve(hash.digest('hex')))
+  })
+}
+
+/** Squirrel's Update.exe, next to the app-<version> folders. */
+function getSquirrelUpdateExe() {
+  return Path.resolve(Path.dirname(process.execPath), '..', 'Update.exe')
+}
+
+/**
+ * Run Update.exe and collect its output (Squirrel prints progress and
+ * errors there). Gives up after `timeoutMs`.
+ */
+function runUpdateExe(args: ReadonlyArray<string>, timeoutMs: number) {
+  return new Promise<{ code: number | null; output: string }>(
+    (resolve, reject) => {
+      const child = spawn(getSquirrelUpdateExe(), args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
+      let output = ''
+      const collect = (chunk: Buffer) => {
+        output = (output + chunk.toString()).slice(-20000)
+      }
+      child.stdout?.on('data', collect)
+      child.stderr?.on('data', collect)
+      const timer = setTimeout(() => {
+        child.kill()
+        reject(new Error('The update took too long to install.'))
+      }, timeoutMs)
+      child.on('error', e => {
+        clearTimeout(timer)
+        reject(e)
+      })
+      child.on('close', code => {
+        clearTimeout(timer)
+        resolve({ code, output })
+      })
+    }
+  )
+}
+
+/**
+ * Windows: update in place with Squirrel, the way GitHub Desktop does.
+ *
+ * Update.exe installs the new version next to the running one while the app
+ * is still open, so a failure is reported here instead of happening
+ * silently after the app has quit. Then `--processStartAndWait` (what
+ * Electron's own quitAndInstall uses) waits for this process to exit and
+ * starts the new version.
+ */
+async function installWithSquirrel(
+  release: ICustomRelease,
+  downloadDir: string,
+  webContents: WebContents
+): Promise<ICustomUpdateInstallResult> {
+  const pkg = release.squirrelPackage!
+
+  // A folder of its own holding only this release, as Squirrel reads every
+  // package listed in RELEASES from it.
+  const feedDir = Path.join(downloadDir, `squirrel-${release.version}`)
+  await rm(feedDir, { recursive: true, force: true })
+  await mkdir(feedDir, { recursive: true })
+
+  const releasesPath = await download(
+    pkg.releases.url,
+    Path.join(feedDir, 'RELEASES'),
+    pkg.releases.size,
+    pkg.releases.sha256,
+    webContents
+  )
+  const entry = findInSquirrelReleases(
+    await readFile(releasesPath, 'utf8'),
+    pkg.nupkg.name,
+    pkg.nupkg.size
+  )
+  if (entry === null) {
+    throw new Error(
+      "The release's RELEASES file doesn't list its update package."
+    )
+  }
+
+  // Saved under the name RELEASES uses, which is what Squirrel looks for.
+  const nupkgPath = await download(
+    pkg.nupkg.url,
+    Path.join(feedDir, entry.fileName),
+    pkg.nupkg.size,
+    pkg.nupkg.sha256,
+    webContents
+  )
+  if ((await sha1File(nupkgPath)) !== entry.sha1) {
+    throw new Error(
+      "The update package doesn't match the release's RELEASES file; please try again."
+    )
+  }
+
+  sendProgress(webContents, {
+    phase: 'installing',
+    message: 'Installing the update…',
+  })
+
+  const { code, output } = await runUpdateExe(
+    ['--update', feedDir],
+    5 * 60 * 1000
+  )
+  log.info(`[CustomUpdater] Update.exe --update exited with ${code}`)
+  if (output.trim().length > 0) {
+    log.info(`[CustomUpdater] Update.exe output:\n${output.slice(-4000)}`)
+  }
+  if (code !== 0) {
+    const lastLine =
+      output
+        .split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l.length > 0)
+        .pop() ?? ''
+    const squirrelLog = Path.resolve(
+      Path.dirname(process.execPath),
+      '..',
+      'SquirrelSetup.log'
+    )
+    return {
+      ok: false,
+      error: `Installing the update failed (Update.exe exited with ${code})${
+        lastLine.length > 0 ? `: ${lastLine}` : '.'
+      } Details are in ${squirrelLog}.`,
+      manualCommand: null,
+    }
+  }
+
+  // Squirrel's --processStartAndWait waits for its parent (this app) to
+  // exit, then starts the newest installed version.
+  sendProgress(webContents, { phase: 'restarting' })
+  spawn(
+    getSquirrelUpdateExe(),
+    ['--processStartAndWait', Path.basename(process.execPath)],
+    { detached: true, stdio: 'ignore', windowsHide: true }
+  ).unref()
+
+  setTimeout(() => {
+    app.quit()
+    // If something holds up a normal quit, don't leave Update.exe waiting.
+    setTimeout(() => app.exit(0), 10 * 1000)
+  }, 500)
+  return { ok: true, error: null, manualCommand: null }
+}
+
 function quitAndRelaunch(execPath?: string) {
   setTimeout(() => {
     app.relaunch(execPath !== undefined ? { execPath } : undefined)
@@ -240,7 +394,12 @@ export async function installCustomUpdate(
   const downloadDir = Path.join(os.tmpdir(), 'github-desktop-custom-update')
 
   try {
+    if (kind === 'windows-setup' && release.squirrelPackage !== null) {
+      return await installWithSquirrel(release, downloadDir, webContents)
+    }
+
     if (kind === 'windows-setup') {
+      // Older releases without a Squirrel package: run the full installer.
       const setup = await download(
         asset.url,
         Path.join(downloadDir, asset.name),
