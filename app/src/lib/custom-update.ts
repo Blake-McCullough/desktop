@@ -38,6 +38,17 @@ export interface ICustomRelease {
   readonly publishedAt: string
   /** The file to install for this install kind, if the release has one. */
   readonly asset: ICustomReleaseAsset | null
+  /**
+   * Windows: the Squirrel package and its RELEASES index, used to update in
+   * place with Update.exe (the way GitHub Desktop updates itself). Null when
+   * the release doesn't have them; then the Setup.exe in `asset` is used.
+   */
+  readonly squirrelPackage: ISquirrelPackage | null
+}
+
+export interface ISquirrelPackage {
+  readonly nupkg: ICustomReleaseAsset
+  readonly releases: ICustomReleaseAsset
 }
 
 export interface ICustomUpdateCheckResult {
@@ -126,10 +137,12 @@ export function selectAsset(
   }
 
   const asset = assets.find(a => pattern.test(a.name))
-  if (asset === undefined) {
-    return null
-  }
+  return asset === undefined ? null : toAsset(asset)
+}
 
+function toAsset(
+  asset: IGitHubReleaseJson['assets'][number]
+): ICustomReleaseAsset {
   const digest = /^sha256:([0-9a-f]{64})$/i.exec(asset.digest ?? '')
   return {
     name: asset.name,
@@ -137,6 +150,69 @@ export function selectAsset(
     size: asset.size,
     sha256: digest !== null ? digest[1].toLowerCase() : null,
   }
+}
+
+/** The full Squirrel package and RELEASES file, for in-place Windows updates. */
+export function selectSquirrelPackage(
+  assets: IGitHubReleaseJson['assets'],
+  kind: CustomInstallKind,
+  arch: string
+): ISquirrelPackage | null {
+  if (kind !== 'windows-setup' || arch !== 'x64') {
+    return null
+  }
+  const nupkg = assets.find(a => /-x64-full\.nupkg$/.test(a.name))
+  const releases = assets.find(a => a.name === 'RELEASES')
+  return nupkg === undefined || releases === undefined
+    ? null
+    : { nupkg: toAsset(nupkg), releases: toAsset(releases) }
+}
+
+/** A package entry in a Squirrel RELEASES file. */
+export interface ISquirrelReleaseEntry {
+  readonly sha1: string
+  /** The file name Squirrel will look for next to RELEASES. */
+  readonly fileName: string
+  readonly size: number
+}
+
+/**
+ * Find the full package we downloaded in a Squirrel RELEASES file, whose
+ * lines are `<SHA1> <file name> <size>`.
+ *
+ * The release uploads the package with an architecture in its name
+ * (`…-x64-full.nupkg`) while RELEASES uses the name Squirrel built it with
+ * (`…-full.nupkg`), so it's matched on size and being a full package, and the
+ * download must be saved as `fileName`. Returns null if nothing matches.
+ */
+export function findInSquirrelReleases(
+  releasesText: string,
+  nupkgName: string,
+  nupkgSize: number
+): ISquirrelReleaseEntry | null {
+  const entries: ISquirrelReleaseEntry[] = []
+  for (const line of releasesText.replace(/^﻿/, '').split(/\r?\n/)) {
+    const match = /^([0-9a-f]{40})\s+(\S+)\s+(\d+)$/i.exec(line.trim())
+    if (match !== null) {
+      entries.push({
+        sha1: match[1].toLowerCase(),
+        fileName: match[2],
+        size: Number(match[3]),
+      })
+    }
+  }
+
+  const sized = entries.filter(
+    e =>
+      e.size === nupkgSize &&
+      /-full\.nupkg$/.test(e.fileName) &&
+      // Only a plain file name; never a path.
+      /^[\w.+-]+$/.test(e.fileName)
+  )
+  return (
+    sized.find(e => e.fileName === nupkgName) ??
+    (sized.length === 1 ? sized[0] : null)
+  )
 }
 
 /** Turn a GitHub release into what the update UI needs. */
@@ -159,6 +235,7 @@ export function toCustomRelease(
     htmlUrl: json.html_url,
     publishedAt: json.published_at ?? '',
     asset: selectAsset(json.assets, kind, platform, arch),
+    squirrelPackage: selectSquirrelPackage(json.assets, kind, arch),
   }
 }
 
