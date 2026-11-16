@@ -52,6 +52,11 @@ From the sidebar's **+** menu:
 
 - **Export repositories…** saves every repository's location, remotes,
   alias, group and group colour to a JSON file.
+- **Export selected repositories…** (also **Export group…** on a group's
+  right-click menu) lets you tick which repositories to include and which
+  fields: full or relative paths, all remotes / origin only / none, groups
+  and their colours, aliases. Usernames and tokens are removed from remote
+  URLs by default. Save as JSON (importable) or CSV for a spreadsheet.
 - **Import repositories…** reads that file on another computer (or after a
   reinstall). You can choose a new base folder — the folder structure below
   it is kept — and the import adds repositories already on disk, clones the

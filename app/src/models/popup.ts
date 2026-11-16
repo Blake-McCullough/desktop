@@ -135,6 +135,7 @@ export enum PopupType {
   CommitGraph = 'CommitGraph',
   CustomUpdate = 'CustomUpdate',
   MoveRepositories = 'MoveRepositories',
+  ExportRepositories = 'ExportRepositories',
 }
 
 interface IBasePopup {
@@ -615,6 +616,14 @@ export type PopupDetail =
   | {
       type: PopupType.WorktreeViewer
       repository: Repository
+    }
+  | {
+      type: PopupType.ExportRepositories
+      repositories: ReadonlyArray<Repository>
+      /** Ids to tick when the dialog opens; all if omitted. */
+      initialSelection?: ReadonlyArray<number>
+      /** Shown when the export finishes. */
+      onExported: (message: string) => void
     }
   | {
       type: PopupType.MoveRepositories

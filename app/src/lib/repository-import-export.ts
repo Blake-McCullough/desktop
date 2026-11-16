@@ -11,7 +11,11 @@ import {
 
 /** Identifies files written by `exportRepositories`. */
 export const RepositoryExportFormat = 'github-desktop-custom/repositories'
-export const RepositoryExportVersion = 1
+/**
+ * Version 2 adds `relativePaths`. Files without relative paths are still
+ * written as version 1 so older versions of the app can import them.
+ */
+export const RepositoryExportVersion = 2
 
 export interface IExportedRemote {
   readonly name: string
@@ -43,6 +47,41 @@ export interface IRepositoryExportFile {
   readonly platform: string
   readonly groups: ReadonlyArray<IExportedGroup>
   readonly repositories: ReadonlyArray<IExportedRepository>
+  /**
+   * When true, repository paths are relative (with `/` separators), and the
+   * importer chooses the folder they go under.
+   */
+  readonly relativePaths?: boolean
+}
+
+/** What to put in an export. */
+export interface IRepositoryExportOptions {
+  /**
+   * `full`: absolute paths. `relative`: paths below the repositories'
+   * shared folder, which keeps the layout without revealing where it was.
+   */
+  readonly location: 'full' | 'relative'
+  /** Every remote, only `origin` (or the first), or none. */
+  readonly remotes: 'all' | 'origin' | 'none'
+  /** Drop usernames, passwords and tokens embedded in remote URLs. */
+  readonly stripRemoteCredentials: boolean
+  readonly groups: boolean
+  /** Group colors and collapsed state (only with `groups`). */
+  readonly groupStyle: boolean
+  readonly aliases: boolean
+  /** Leave out groups none of the exported repositories are in. */
+  readonly onlyUsedGroups: boolean
+}
+
+/** Everything, as the quick "Export repositories…" has always written. */
+export const FullRepositoryExport: IRepositoryExportOptions = {
+  location: 'full',
+  remotes: 'all',
+  stripRemoteCredentials: false,
+  groups: true,
+  groupStyle: true,
+  aliases: true,
+  onlyUsedGroups: false,
 }
 
 /* ---------------------------------------------------------------------------
@@ -54,7 +93,8 @@ export interface IRepositoryExportFile {
  * colors, aliases, locations and remotes.
  */
 export async function buildRepositoryExport(
-  repositories: ReadonlyArray<Repository>
+  repositories: ReadonlyArray<Repository>,
+  options: IRepositoryExportOptions = FullRepositoryExport
 ): Promise<IRepositoryExportFile> {
   const groups = getCustomGroups()
   const assignments = getRepositoryGroupAssignments()
@@ -75,19 +115,158 @@ export async function buildRepositoryExport(
     a.path.localeCompare(b.path, undefined, { sensitivity: 'base' })
   )
 
-  return {
-    format: RepositoryExportFormat,
-    version: RepositoryExportVersion,
-    exportedAt: new Date().toISOString(),
-    platform: process.platform,
-    groups: groups.map((g: ICustomRepositoryGroup) => ({
-      key: g.id,
-      name: g.name,
-      color: g.color,
-      collapsed: collapsed.has(g.id) || undefined,
-    })),
-    repositories: exported,
+  return applyExportOptions(
+    {
+      format: RepositoryExportFormat,
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      platform: process.platform,
+      groups: groups.map((g: ICustomRepositoryGroup) => ({
+        key: g.id,
+        name: g.name,
+        color: g.color,
+        collapsed: collapsed.has(g.id) || undefined,
+      })),
+      repositories: exported,
+    },
+    options
+  )
+}
+
+/** Remove `user:password@` from a URL; other URLs are returned unchanged. */
+export function stripUrlCredentials(url: string): string {
+  // scp-style `git@host:path` has a user but never a secret; leave it.
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
+    return url
   }
+  try {
+    const parsed = new URL(url)
+    if (parsed.username === '' && parsed.password === '') {
+      return url
+    }
+    // Keep `ssh://git@host/...`'s user, which is part of the address.
+    if (parsed.protocol === 'ssh:' && parsed.password === '') {
+      return url
+    }
+    parsed.username = ''
+    parsed.password = ''
+    return parsed.toString()
+  } catch {
+    return url
+  }
+}
+
+/** Express `path` relative to `root`, with `/` separators. */
+function relativeTo(path: string, root: string | null): string {
+  const parts = splitPath(path)
+  const rootParts = root === null ? [] : splitPath(root)
+  const isUnder =
+    rootParts.length > 0 &&
+    rootParts.length < parts.length &&
+    rootParts.every((segment, i) => samePathSegment(segment, parts[i]))
+  return isUnder
+    ? parts.slice(rootParts.length).join('/')
+    : parts[parts.length - 1] ?? path
+}
+
+/** Trim a full export down to what the options ask for. Exported for tests. */
+export function applyExportOptions(
+  data: IRepositoryExportFile,
+  options: IRepositoryExportOptions
+): IRepositoryExportFile {
+  const root =
+    options.location === 'relative'
+      ? getCommonRoot(data.repositories.map(r => r.path))
+      : null
+
+  const repositories = data.repositories.map(r => {
+    let remotes = r.remotes
+    if (options.remotes === 'none') {
+      remotes = []
+    } else if (options.remotes === 'origin' && remotes.length > 0) {
+      remotes = [remotes.find(x => x.name === 'origin') ?? remotes[0]]
+    }
+    if (options.stripRemoteCredentials) {
+      remotes = remotes.map(x => ({ ...x, url: stripUrlCredentials(x.url) }))
+    }
+
+    return {
+      name: r.name,
+      alias: options.aliases ? r.alias : null,
+      path: options.location === 'relative' ? relativeTo(r.path, root) : r.path,
+      group: options.groups ? r.group : null,
+      remotes,
+    }
+  })
+
+  const usedGroups = new Set(repositories.map(r => r.group))
+  const groups = !options.groups
+    ? []
+    : data.groups
+        .filter(g => !options.onlyUsedGroups || usedGroups.has(g.key))
+        .map(g => (options.groupStyle ? g : { key: g.key, name: g.name }))
+
+  const relative = options.location === 'relative'
+  return {
+    ...data,
+    // Older versions can't import relative paths, so only those files need
+    // the newer version.
+    version: relative ? RepositoryExportVersion : 1,
+    groups,
+    repositories,
+    ...(relative ? { relativePaths: true } : {}),
+  }
+}
+
+/** The CSV columns for an export, in order. */
+export function getCsvColumns(
+  options: IRepositoryExportOptions
+): ReadonlyArray<string> {
+  return [
+    'Name',
+    ...(options.aliases ? ['Alias'] : []),
+    'Path',
+    ...(options.groups ? ['Group'] : []),
+    ...(options.groups && options.groupStyle ? ['Group color'] : []),
+    ...(options.remotes === 'origin' ? ['Remote URL'] : []),
+    ...(options.remotes === 'all' ? ['Remotes'] : []),
+  ]
+}
+
+function csvCell(value: string): string {
+  // Spreadsheets run cells starting with these as formulas.
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
+}
+
+/**
+ * The export as CSV (for spreadsheets), with the columns the options
+ * include. Not importable.
+ */
+export function buildRepositoryCsv(
+  data: IRepositoryExportFile,
+  options: IRepositoryExportOptions
+): string {
+  const groups = new Map(data.groups.map(g => [g.key, g]))
+  const rows = data.repositories.map(r => {
+    const group = r.group === null ? undefined : groups.get(r.group)
+    return [
+      r.name,
+      ...(options.aliases ? [r.alias ?? ''] : []),
+      r.path,
+      ...(options.groups ? [group?.name ?? ''] : []),
+      ...(options.groups && options.groupStyle ? [group?.color ?? ''] : []),
+      ...(options.remotes === 'origin' ? [r.remotes[0]?.url ?? ''] : []),
+      ...(options.remotes === 'all'
+        ? [r.remotes.map(x => `${x.name}=${x.url}`).join(' ')]
+        : []),
+    ]
+  })
+  return (
+    [getCsvColumns(options), ...rows]
+      .map(row => row.map(csvCell).join(','))
+      .join('\r\n') + '\r\n'
+  )
 }
 
 async function exportRepository(
@@ -219,6 +398,7 @@ export function parseRepositoryExport(raw: unknown): IRepositoryExportFile {
     platform: isString(data.platform) ? data.platform : '',
     groups,
     repositories,
+    relativePaths: data.relativePaths === true,
   }
 }
 
@@ -288,8 +468,17 @@ export function getCommonRoot(paths: ReadonlyArray<string>): string | null {
 export function mapImportPath(
   originalPath: string,
   oldRoot: string | null,
-  newRoot: string | null
+  newRoot: string | null,
+  relative = false
 ): string {
+  if (relative) {
+    // Relative paths always go under the chosen folder (`..` can't escape).
+    const parts = splitPath(originalPath).filter(p => p !== '.' && p !== '..')
+    return newRoot === null || newRoot.trim().length === 0
+      ? parts.join(Path.sep)
+      : Path.join(newRoot, ...parts)
+  }
+
   if (oldRoot === null || newRoot === null || newRoot.trim().length === 0) {
     return Path.normalize(originalPath)
   }
@@ -366,7 +555,18 @@ export async function planImport(
 
   return Promise.all(
     data.repositories.map(async source => {
-      const targetPath = mapImportPath(source.path, oldRoot, newRoot)
+      const relative = data.relativePaths === true
+      const targetPath = mapImportPath(source.path, oldRoot, newRoot, relative)
+      if (relative && (newRoot === null || newRoot.trim().length === 0)) {
+        // Nowhere to put it until a folder is chosen.
+        return {
+          source,
+          targetPath,
+          action: 'unavailable' as const,
+          cloneUrl: null,
+          existing: null,
+        }
+      }
       const existing =
         existingByPath.get(normalizeForCompare(targetPath)) ?? null
       const origin =

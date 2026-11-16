@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { getDefaultDir } from '../lib/default-dir'
 import classNames from 'classnames'
 import { Dialog, DialogContent, DialogFooter } from '../dialog'
 import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
@@ -60,9 +61,10 @@ export class ImportRepositoriesDialog extends React.Component<
   IImportRepositoriesDialogProps,
   IImportRepositoriesDialogState
 > {
-  private readonly oldRoot = getCommonRoot(
-    this.props.data.repositories.map(r => r.path)
-  )
+  /** Relative paths have no original folder; they go under `newRoot`. */
+  private readonly oldRoot = this.props.data.relativePaths
+    ? null
+    : getCommonRoot(this.props.data.repositories.map(r => r.path))
   private planVersion = 0
   private planTimer: number | null = null
   private unmounted = false
@@ -81,6 +83,17 @@ export class ImportRepositoriesDialog extends React.Component<
   }
 
   public componentDidMount() {
+    if (this.props.data.relativePaths) {
+      // Start with the usual clone location; the user can change it.
+      getDefaultDir()
+        .then(dir => {
+          if (!this.unmounted && this.state.newRoot.length === 0) {
+            this.onNewRootChanged(dir)
+          }
+        })
+        .catch(() => this.updatePlan(this.state.newRoot))
+      return
+    }
     this.updatePlan(this.state.newRoot)
   }
 
@@ -402,7 +415,9 @@ export class ImportRepositoriesDialog extends React.Component<
               value={newRoot}
               onValueChanged={this.onNewRootChanged}
               disabled={phase === 'importing' || phase === 'done'}
-              placeholder="Keep original paths"
+              placeholder={
+                data.relativePaths ? 'Choose a folder' : 'Keep original paths'
+              }
             />
             <Button
               onClick={this.onChooseRoot}
@@ -411,6 +426,12 @@ export class ImportRepositoriesDialog extends React.Component<
               Choose…
             </Button>
           </div>
+          {data.relativePaths && (
+            <p className="import-hint">
+              This export has relative paths. They'll be placed under this
+              folder, keeping their layout.
+            </p>
+          )}
           {this.oldRoot !== null && (
             <p className="import-hint">
               Originally under <code>{this.oldRoot}</code>. Folder structure

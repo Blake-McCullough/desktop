@@ -520,6 +520,17 @@ export class RepositoriesSidebar extends React.PureComponent<
     })
   }
 
+  private showExportRepositories(initialSelection?: ReadonlyArray<number>) {
+    this.props.dispatcher.showPopup({
+      type: PopupType.ExportRepositories,
+      repositories: this.props.repositories.filter(
+        (r): r is Repository => r instanceof Repository
+      ),
+      initialSelection,
+      onExported: message => this.showNotice(message),
+    })
+  }
+
   /** Every repository in a group, ignoring the filter. */
   private getGroupRepositories(groupId: string) {
     return this.props.repositories.filter(
@@ -563,13 +574,21 @@ export class RepositoriesSidebar extends React.PureComponent<
       ),
     }
 
+    const exportGroup: IMenuItem = {
+      label: __DARWIN__ ? 'Export Group…' : 'Export group…',
+      action: () =>
+        this.showExportRepositories(groupRepositories.map(r => r.id)),
+      enabled: groupRepositories.some(r => r instanceof Repository),
+    }
+
     if (section.isOther) {
-      showContextualMenu([moveGroup, ...common])
+      showContextualMenu([moveGroup, exportGroup, ...common])
       return
     }
 
     showContextualMenu([
       moveGroup,
+      exportGroup,
       { type: 'separator' },
       {
         label: 'Rename group…',
@@ -793,6 +812,13 @@ export class RepositoriesSidebar extends React.PureComponent<
         label: __DARWIN__ ? 'Export Repositories…' : 'Export repositories…',
         action: this.onExportClick,
         enabled: this.props.repositories.length > 0,
+      },
+      {
+        label: __DARWIN__
+          ? 'Export Selected Repositories…'
+          : 'Export selected repositories…',
+        action: () => this.showExportRepositories(),
+        enabled: this.props.repositories.some(r => r instanceof Repository),
       },
       {
         label: __DARWIN__

@@ -148,6 +148,7 @@ import { RepositoryGroupColorDialog } from './repositories-list/repository-group
 import { ImportRepositoriesDialog } from './repositories-list/import-repositories-dialog'
 import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
 import { MoveRepositoriesDialog } from './repositories-list/move-repositories-dialog'
+import { ExportRepositoriesDialog } from './repositories-list/export-repositories-dialog'
 import { GitLabPipelinePoller } from './repositories-list/gitlab-pipeline-poller'
 import {
   getShowRepositoriesSidebar,
@@ -2671,6 +2672,17 @@ export class App extends React.Component<IAppProps, IAppState> {
             key="worktree-viewer"
             dispatcher={this.props.dispatcher}
             repository={popup.repository}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
+      case PopupType.ExportRepositories: {
+        return (
+          <ExportRepositoriesDialog
+            key="export-repositories"
+            repositories={popup.repositories}
+            initialSelection={popup.initialSelection}
+            onExported={popup.onExported}
             onDismissed={onPopupDismissedFn}
           />
         )
