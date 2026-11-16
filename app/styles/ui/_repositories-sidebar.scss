@@ -1768,3 +1768,115 @@ dialog#commit-graph {
     opacity: 0.7;
   }
 }
+
+// Export selected repositories dialog
+#export-repositories {
+  width: 620px;
+
+  .dialog-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-double);
+  }
+
+  .export-picker-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing);
+    margin-bottom: var(--spacing-half);
+
+    .checkbox-component {
+      flex-shrink: 0;
+      font-weight: 600;
+    }
+
+    .export-filter {
+      flex-grow: 1;
+    }
+  }
+
+  .export-picker-list {
+    max-height: 260px;
+    overflow-y: auto;
+    border: var(--base-border);
+    border-radius: var(--border-radius);
+  }
+
+  .export-picker-group-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: var(--spacing-half) var(--spacing);
+    background: var(--box-alt-background-color);
+    border-bottom: var(--base-border);
+    font-weight: 600;
+
+    &.colored {
+      border-left: 3px solid var(--group-color);
+      background: linear-gradient(var(--group-tint), var(--group-tint)),
+        var(--background-color);
+      color: var(--group-color);
+    }
+  }
+
+  .export-picker-repository {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing);
+    min-width: 0;
+    padding: 2px var(--spacing) 2px var(--spacing-double);
+
+    .checkbox-component {
+      flex-shrink: 0;
+    }
+  }
+
+  .export-picker-path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+  }
+
+  .export-picker-empty {
+    padding: var(--spacing);
+    color: var(--text-secondary-color);
+  }
+
+  .export-repositories-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-half);
+
+    h3 {
+      margin: 0 0 var(--spacing-half);
+      font-size: var(--font-size-md);
+    }
+  }
+
+  .export-field-row {
+    display: flex;
+    gap: var(--spacing);
+    margin-bottom: var(--spacing-half);
+
+    .select-component {
+      flex: 1 1 0;
+    }
+  }
+
+  .export-field-indent {
+    padding-left: var(--spacing-double);
+  }
+
+  .export-field-hint {
+    margin: 0 0 var(--spacing-half);
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+
+    code {
+      word-break: break-all;
+    }
+  }
+}
