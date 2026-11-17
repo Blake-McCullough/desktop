@@ -26,7 +26,10 @@ it starts and every few hours, and shows a banner when one is available.
 You can also use **Help → Check for updates…**. **Update now** downloads and
 installs the right file for how you installed it, then restarts:
 
-- **Windows** — runs the new installer.
+- **Windows** — installs the update with Squirrel (the same updater GitHub
+  Desktop uses) while the app is open, then restarts into it. Versions up to
+  `3.6.11-custom1-b00013` had a broken Windows updater, so to get past them
+  run the latest `GitHubDesktopCustomSetup-x64.exe` by hand once.
 - **Arch / CachyOS package** — installs it with `pacman`, asking for your
   password through the desktop's normal prompt.
 - **AppImage** — replaces the AppImage file in place.
