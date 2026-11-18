@@ -808,6 +808,53 @@
   }
 }
 
+.gitlab-tokens {
+  .gitlab-token-row {
+    padding: var(--spacing) 0;
+    border-top: var(--base-border);
+
+    &:first-of-type {
+      border-top: none;
+    }
+
+    .row-component {
+      align-items: center;
+      gap: var(--spacing-half);
+      margin-bottom: 0;
+
+      .text-box-component {
+        flex-grow: 1;
+      }
+    }
+  }
+
+  .gitlab-token-title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing);
+    margin-bottom: var(--spacing-half);
+  }
+
+  .gitlab-token-note {
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+  }
+
+  .gitlab-add-instance {
+    padding-top: var(--spacing);
+    border-top: var(--base-border);
+
+    .row-component {
+      align-items: flex-end;
+      gap: var(--spacing-half);
+
+      .text-box-component {
+        flex-grow: 1;
+      }
+    }
+  }
+}
+
 /* --------------------------------------------- preferences: tag colors */
 
 .tag-colors {

@@ -1120,7 +1120,7 @@ export class CloneRepository extends React.Component<
     url: string
   ) {
     try {
-      const token = await getGitLabToken()
+      const token = await getGitLabToken(selection.instanceUrl)
       if (token !== null) {
         await rememberGitLabCredential(url, selection.username, token)
       }

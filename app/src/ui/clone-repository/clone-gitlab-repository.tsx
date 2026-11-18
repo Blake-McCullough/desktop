@@ -201,7 +201,7 @@ export class CloneGitLabRepository extends React.PureComponent<
   private async load(refresh: boolean) {
     const id = ++this.requestId
     const { instanceUrl } = this.state
-    const token = await getGitLabToken()
+    const token = await getGitLabToken(instanceUrl)
     if (!this.mounted || id !== this.requestId) {
       return
     }
@@ -276,6 +276,7 @@ export class CloneGitLabRepository extends React.PureComponent<
     if (this.state.hasToken === false) {
       return (
         <DialogContent className="clone-gitlab-repository-content">
+          {this.renderInstancePicker()}
           {this.renderNoToken()}
         </DialogContent>
       )
@@ -308,8 +309,10 @@ export class CloneGitLabRepository extends React.PureComponent<
         onAction={this.props.onOpenGitLabPreferences}
       >
         <div>
-          Add a GitLab personal access token (with the <Ref>read_api</Ref> or{' '}
-          <Ref>api</Ref> scope) to browse and clone your GitLab projects.
+          Add a personal access token for{' '}
+          <Ref>{hostLabel(this.state.instanceUrl)}</Ref> (with the{' '}
+          <Ref>read_api</Ref> or <Ref>api</Ref> scope) to browse and clone its
+          projects.
         </div>
       </CallToAction>
     )

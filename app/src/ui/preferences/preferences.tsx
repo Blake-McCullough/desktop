@@ -9,7 +9,8 @@ import { Dispatcher } from '../dispatcher'
 import { TabBar, TabBarType } from '../tab-bar'
 import { Accounts } from './accounts'
 import { Advanced } from './advanced'
-import { GitLab } from './gitlab'
+import { DefaultTokenKey, GitLab } from './gitlab'
+import { gitLabPipelineStatusStore } from '../../lib/stores/gitlab-pipeline-status-store'
 import { TagColors } from './tag-colors'
 import {
   ITagColorRule,
@@ -54,7 +55,8 @@ import { Repository } from '../../models/repository'
 import { Notifications } from './notifications'
 import { Accessibility } from './accessibility'
 import {
-  getGitLabToken,
+  GitLabDotComInstance,
+  getGitLabInstanceToken,
   setGitLabToken,
   getGitLabInstanceUrls,
   setGitLabInstanceUrls,
@@ -219,17 +221,15 @@ interface IPreferencesState {
   readonly preferAbsoluteDates?: boolean
 
   /**
-   * The GitLab personal access token as currently edited. `undefined`
-   * while the stored value is still being loaded asynchronously, `null`
-   * if none is configured.
+   * GitLab tokens as edited, keyed by instance URL ('' for the default
+   * token). `undefined` while the stored values load.
    */
-  readonly gitlabToken?: string | null
-  readonly initialGitlabToken?: string | null
+  readonly gitlabTokens?: ReadonlyMap<string, string>
+  readonly initialGitlabTokens?: ReadonlyMap<string, string>
   /** Tag color rules as edited. */
   readonly tagColorRules: ReadonlyArray<ITagColorRule>
-  /** Self-hosted GitLab instance URLs as edited, one per line. */
-  readonly gitlabInstanceUrls: string
-  readonly initialGitlabInstanceUrls: string
+  /** Self-hosted GitLab instance URLs as edited. */
+  readonly gitlabInstanceUrls: ReadonlyArray<string>
 }
 
 /**
@@ -303,11 +303,10 @@ export class Preferences extends React.Component<
       selectedTimeFormat: getTimeFormatPreference(),
       selectedNumberFormat: getNumberFormatPreference(),
       preferAbsoluteDates: getPreferAbsoluteDates(),
-      gitlabToken: undefined,
-      initialGitlabToken: undefined,
+      gitlabTokens: undefined,
+      initialGitlabTokens: undefined,
       tagColorRules: getTagColorRules(),
-      gitlabInstanceUrls: getGitLabInstanceUrls().join('\n'),
-      initialGitlabInstanceUrls: getGitLabInstanceUrls().join('\n'),
+      gitlabInstanceUrls: getGitLabInstanceUrls(),
     }
   }
 
@@ -393,15 +392,31 @@ export class Preferences extends React.Component<
   }
 
   private async loadGitLabToken() {
-    const gitlabToken = await getGitLabToken()
-    this.setState({ gitlabToken, initialGitlabToken: gitlabToken })
+    const keys = new Set<string>([
+      DefaultTokenKey,
+      GitLabDotComInstance,
+      ...getGitLabInstanceUrls(),
+      ...gitLabPipelineStatusStore.getKnownInstances(),
+    ])
+    const tokens = new Map<string, string>()
+    for (const key of keys) {
+      const token = await getGitLabInstanceToken(
+        key === DefaultTokenKey ? null : key
+      )
+      tokens.set(key, token ?? '')
+    }
+    this.setState({ gitlabTokens: tokens, initialGitlabTokens: tokens })
   }
 
-  private onGitLabTokenChanged = (gitlabToken: string) => {
-    this.setState({ gitlabToken })
+  private onGitLabTokenChanged = (key: string, token: string) => {
+    this.setState(prev => ({
+      gitlabTokens: new Map(prev.gitlabTokens ?? []).set(key, token),
+    }))
   }
 
-  private onGitLabInstanceUrlsChanged = (gitlabInstanceUrls: string) => {
+  private onGitLabInstanceUrlsChanged = (
+    gitlabInstanceUrls: ReadonlyArray<string>
+  ) => {
     this.setState({ gitlabInstanceUrls })
   }
 
@@ -847,7 +862,7 @@ export class Preferences extends React.Component<
       case PreferencesTab.GitLab:
         View = (
           <GitLab
-            token={this.state.gitlabToken}
+            tokens={this.state.gitlabTokens}
             onTokenChanged={this.onGitLabTokenChanged}
             instanceUrls={this.state.gitlabInstanceUrls}
             onInstanceUrlsChanged={this.onGitLabInstanceUrlsChanged}
@@ -1318,20 +1333,30 @@ export class Preferences extends React.Component<
       setTagColorRules(this.state.tagColorRules)
     }
 
+    const instanceUrls = this.state.gitlabInstanceUrls
+    const savedInstanceUrls = getGitLabInstanceUrls()
     if (
-      this.state.gitlabInstanceUrls !== this.state.initialGitlabInstanceUrls
+      instanceUrls.length !== savedInstanceUrls.length ||
+      instanceUrls.some((u, i) => u !== savedInstanceUrls[i])
     ) {
-      setGitLabInstanceUrls(this.state.gitlabInstanceUrls.split(/\r?\n/))
+      setGitLabInstanceUrls(instanceUrls)
     }
 
-    if (this.state.gitlabToken !== this.state.initialGitlabToken) {
-      try {
-        await setGitLabToken(this.state.gitlabToken ?? null)
-      } catch (e) {
-        log.error('Failed to save GitLab token', e)
-        this.props.dispatcher.postError(
-          new Error(`Couldn't save the GitLab token: ${e.message}`)
-        )
+    const tokens = this.state.gitlabTokens
+    const initialTokens = this.state.initialGitlabTokens
+    if (tokens !== undefined && initialTokens !== undefined) {
+      for (const [key, token] of tokens) {
+        if (token.trim() === (initialTokens.get(key) ?? '').trim()) {
+          continue
+        }
+        try {
+          await setGitLabToken(token, key === DefaultTokenKey ? null : key)
+        } catch (e) {
+          log.error('Failed to save GitLab token', e)
+          this.props.dispatcher.postError(
+            new Error(`Couldn't save the GitLab token: ${e.message}`)
+          )
+        }
       }
     }
 

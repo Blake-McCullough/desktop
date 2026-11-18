@@ -2,7 +2,6 @@ import * as React from 'react'
 import { DialogContent } from '../dialog'
 import { Row } from '../lib/row'
 import { TextBox } from '../lib/text-box'
-import { TextArea } from '../lib/text-area'
 import { Button } from '../lib/button'
 import { Repository } from '../../models/repository'
 import { gitLabPipelineStatusStore } from '../../lib/stores/gitlab-pipeline-status-store'
@@ -11,83 +10,185 @@ import {
   checkGitLabToken,
   normalizeInstanceUrl,
 } from '../../lib/gitlab/gitlab-api'
+import { GitLabDotComInstance } from '../../lib/gitlab/gitlab-token'
+
+/** The key for the default token in `tokens`. */
+export const DefaultTokenKey = ''
 
 interface IGitLabProps {
   /**
-   * The GitLab personal access token as currently loaded/edited, or `null`
-   * if none is configured. `undefined` while the stored value is loading.
+   * Tokens as currently edited, keyed by instance URL (`DefaultTokenKey` for
+   * the default token). `undefined` while the stored values load.
    */
-  readonly token: string | null | undefined
-  readonly onTokenChanged: (token: string) => void
+  readonly tokens: ReadonlyMap<string, string> | undefined
+  readonly onTokenChanged: (key: string, token: string) => void
 
-  /** Self-hosted instance URLs as edited, one per line. */
-  readonly instanceUrls: string
-  readonly onInstanceUrlsChanged: (urls: string) => void
+  /** Self-hosted instance URLs as edited. */
+  readonly instanceUrls: ReadonlyArray<string>
+  readonly onInstanceUrlsChanged: (urls: ReadonlyArray<string>) => void
 
   readonly repositories: ReadonlyArray<Repository>
 }
 
+interface ITestResult {
+  readonly ok: boolean
+  readonly lines: ReadonlyArray<string>
+}
+
 interface IGitLabState {
-  readonly isTesting: boolean
-  readonly testResult: {
-    readonly ok: boolean
-    readonly lines: ReadonlyArray<string>
-  } | null
+  readonly newInstanceUrl: string
+  readonly newInstanceError: string | null
+  /** Test results by token key. */
+  readonly testing: ReadonlySet<string>
+  readonly testResults: ReadonlyMap<string, ITestResult>
   readonly isFetching: boolean
   readonly fetchResultMessage: string | null
 }
 
+function hostLabel(url: string) {
+  try {
+    const u = new URL(url)
+    return `${u.host}${u.pathname === '/' ? '' : u.pathname}${
+      u.protocol === 'http:' ? ' (HTTP)' : ''
+    }`
+  } catch {
+    return url
+  }
+}
+
 /**
- * The "GitLab" preferences tab: the personal access token used for
- * pipeline statuses, plus any self-hosted GitLab instances.
+ * The "GitLab" preferences tab: a token per GitLab instance (plus a default
+ * token for any instance without its own), and the self-hosted instances.
  */
 export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
+  private readonly tokenHandlers = new Map<string, (value: string) => void>()
+  private readonly clearHandlers = new Map<string, () => void>()
+  private readonly testHandlers = new Map<string, () => void>()
+  private readonly removeHandlers = new Map<string, () => void>()
+
   public constructor(props: IGitLabProps) {
     super(props)
 
     this.state = {
-      isTesting: false,
-      testResult: null,
+      newInstanceUrl: '',
+      newInstanceError: null,
+      testing: new Set(),
+      testResults: new Map(),
       isFetching: false,
       fetchResultMessage: null,
     }
   }
 
-  private onTokenChanged = (value: string) => {
-    this.props.onTokenChanged(value)
-    this.setState({ testResult: null })
+  /** Every instance to list: gitlab.com, configured, then detected ones. */
+  private getInstances(): ReadonlyArray<{
+    readonly url: string
+    readonly kind: 'gitlab.com' | 'configured' | 'detected'
+  }> {
+    const seen = new Set<string>([GitLabDotComInstance])
+    const rows: Array<{
+      url: string
+      kind: 'gitlab.com' | 'configured' | 'detected'
+    }> = [{ url: GitLabDotComInstance, kind: 'gitlab.com' }]
+    for (const url of this.props.instanceUrls) {
+      if (!seen.has(url)) {
+        seen.add(url)
+        rows.push({ url, kind: 'configured' })
+      }
+    }
+    for (const url of gitLabPipelineStatusStore.getKnownInstances()) {
+      if (!seen.has(url)) {
+        seen.add(url)
+        rows.push({ url, kind: 'detected' })
+      }
+    }
+    return rows
   }
 
-  private onClearToken = () => {
-    this.props.onTokenChanged('')
-    this.setState({ testResult: null })
+  private getTokenHandler(key: string) {
+    let handler = this.tokenHandlers.get(key)
+    if (handler === undefined) {
+      handler = (value: string) => {
+        this.props.onTokenChanged(key, value)
+        this.clearTestResult(key)
+      }
+      this.tokenHandlers.set(key, handler)
+    }
+    return handler
   }
 
-  private getInstanceList(): ReadonlyArray<string> {
-    return this.props.instanceUrls
-      .split(/\r?\n/)
-      .map(normalizeInstanceUrl)
-      .filter((u): u is string => u !== null)
+  private getClearHandler(key: string) {
+    let handler = this.clearHandlers.get(key)
+    if (handler === undefined) {
+      handler = () => {
+        this.props.onTokenChanged(key, '')
+        this.clearTestResult(key)
+      }
+      this.clearHandlers.set(key, handler)
+    }
+    return handler
   }
 
-  private onTestClick = async () => {
-    const token = (this.props.token ?? '').trim()
+  private getTestHandler(key: string) {
+    let handler = this.testHandlers.get(key)
+    if (handler === undefined) {
+      handler = () => this.test(key)
+      this.testHandlers.set(key, handler)
+    }
+    return handler
+  }
+
+  private getRemoveHandler(url: string) {
+    let handler = this.removeHandlers.get(url)
+    if (handler === undefined) {
+      handler = () => {
+        this.props.onInstanceUrlsChanged(
+          this.props.instanceUrls.filter(u => u !== url)
+        )
+        // Its token goes too.
+        this.props.onTokenChanged(url, '')
+      }
+      this.removeHandlers.set(url, handler)
+    }
+    return handler
+  }
+
+  private clearTestResult(key: string) {
+    if (this.state.testResults.has(key)) {
+      const testResults = new Map(this.state.testResults)
+      testResults.delete(key)
+      this.setState({ testResults })
+    }
+  }
+
+  private token(key: string) {
+    return (this.props.tokens?.get(key) ?? '').trim()
+  }
+
+  /**
+   * Test a token. An instance's own token is tested against it; the default
+   * token against every instance that would use it.
+   */
+  private async test(key: string) {
+    const token = this.token(key)
     if (token.length === 0) {
       return
     }
 
-    const instances = this.getInstanceList()
-    const targets = instances.length > 0 ? instances : ['https://gitlab.com']
+    const targets =
+      key === DefaultTokenKey
+        ? this.getInstances()
+            .map(i => i.url)
+            .filter(url => this.token(url).length === 0)
+        : [key]
 
-    this.setState({ isTesting: true, testResult: null })
+    this.setState(prev => ({ testing: new Set(prev.testing).add(key) }))
 
     const lines: Array<string> = []
     let ok = true
-
     for (const target of targets) {
       try {
         const result = await checkGitLabToken(target, token)
-        let line = `✓ ${target}: signed in as @${result.username}`
+        let line = `✓ ${hostLabel(target)}: signed in as @${result.username}`
         if (result.scopes !== null) {
           line += ` · scopes: ${result.scopes.join(', ') || 'none'}`
           if (!result.scopes.includes('api')) {
@@ -104,13 +205,44 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
         ok = false
         const reason =
           e instanceof GitLabApiError && e.isUnauthorized
-            ? 'token rejected (invalid, expired or revoked)'
+            ? 'token rejected (invalid, expired, revoked or for another server)'
             : e.message
-        lines.push(`✗ ${target}: ${reason}`)
+        lines.push(`✗ ${hostLabel(target)}: ${reason}`)
       }
     }
+    if (targets.length === 0) {
+      lines.push('Every server has its own token, so the default is unused.')
+    }
 
-    this.setState({ isTesting: false, testResult: { ok, lines } })
+    this.setState(prev => {
+      const testing = new Set(prev.testing)
+      testing.delete(key)
+      return {
+        testing,
+        testResults: new Map(prev.testResults).set(key, { ok, lines }),
+      }
+    })
+  }
+
+  private onNewInstanceChanged = (newInstanceUrl: string) => {
+    this.setState({ newInstanceUrl, newInstanceError: null })
+  }
+
+  private onAddInstance = () => {
+    const url = normalizeInstanceUrl(this.state.newInstanceUrl)
+    if (url === null) {
+      this.setState({
+        newInstanceError: 'Enter the address of a GitLab server.',
+      })
+      return
+    }
+    if (
+      !this.props.instanceUrls.includes(url) &&
+      url !== GitLabDotComInstance
+    ) {
+      this.props.onInstanceUrlsChanged([...this.props.instanceUrls, url])
+    }
+    this.setState({ newInstanceUrl: '', newInstanceError: null })
   }
 
   private onFetchNowClick = async () => {
@@ -134,84 +266,78 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
         authError ??
         `Found pipelines for ${count} ${
           count === 1 ? 'repository' : 'repositories'
-        }. (Uses the saved token — save first if you just changed it.)`,
+        }. (Uses the saved tokens — save first if you just changed one.)`,
     })
   }
 
   public render() {
-    const token = this.props.token ?? ''
-    const isLoading = this.props.token === undefined
-    const { testResult } = this.state
+    const isLoading = this.props.tokens === undefined
+    const hasDefault = this.token(DefaultTokenKey).length > 0
 
     return (
       <DialogContent>
-        <div className="advanced-section">
-          <h2>Personal access token</h2>
-          <Row>
-            <TextBox
-              label="GitLab personal access token"
-              type="password"
-              value={token}
-              onValueChanged={this.onTokenChanged}
-              placeholder={isLoading ? 'Loading…' : 'glpat-…'}
-              disabled={isLoading}
-            />
-          </Row>
-          <Row>
-            <Button
-              onClick={this.onTestClick}
-              disabled={
-                isLoading || token.trim() === '' || this.state.isTesting
-              }
-            >
-              {this.state.isTesting ? 'Testing…' : 'Test token'}
-            </Button>
-            <Button
-              onClick={this.onClearToken}
-              disabled={isLoading || token === ''}
-            >
-              Clear
-            </Button>
-          </Row>
-          {testResult !== null && (
-            <div
-              className={`gitlab-token-test ${testResult.ok ? 'ok' : 'error'}`}
-              role="status"
-            >
-              {testResult.lines.map((line, i) => (
-                <div key={i}>{line}</div>
-              ))}
-            </div>
-          )}
+        <div className="advanced-section gitlab-tokens">
+          <h2>Servers and tokens</h2>
           <div className="settings-description">
             <p>
-              Shows pipeline status for GitLab repositories in the sidebar and
-              history. Use the <code>read_api</code> scope to view statuses, or{' '}
-              <code>api</code> to also run manual jobs. The token is stored in
-              your system's credential manager.
+              Each GitLab server can have its own personal access token. Use the{' '}
+              <code>read_api</code> scope to view pipelines, or <code>api</code>{' '}
+              to also run, retry and cancel jobs. Tokens are stored in your
+              system's credential manager.
             </p>
           </div>
-        </div>
 
-        <div className="advanced-section">
-          <h2>Self-hosted instances</h2>
-          <Row>
-            <TextArea
-              label="GitLab instance URLs (one per line)"
-              value={this.props.instanceUrls}
-              onValueChanged={this.props.onInstanceUrlsChanged}
-              placeholder={
-                'https://git.example.com\nhttps://example.com/gitlab'
-              }
-              rows={3}
-            />
-          </Row>
-          <div className="settings-description">
-            <p>
-              Hosts with "gitlab" in their name are detected automatically. Add
-              any other instance here, including ones served from a sub path or
-              plain HTTP.
-            </p>
+          {this.renderTokenRow(
+            DefaultTokenKey,
+            'Default token',
+            'Used for any server below that has no token of its own.',
+            isLoading,
+            null
+          )}
+
+          {this.getInstances().map(({ url, kind }) =>
+            this.renderTokenRow(
+              url,
+              hostLabel(url),
+              kind === 'detected'
+                ? 'Found in your repositories.'
+                : kind === 'gitlab.com'
+                ? null
+                : 'Self-hosted.',
+              isLoading,
+              kind === 'configured' ? url : null,
+              hasDefault ? 'Uses the default token' : 'glpat-…'
+            )
+          )}
+
+          <div className="gitlab-add-instance">
+            <Row>
+              <TextBox
+                label="Add a self-hosted server"
+                value={this.state.newInstanceUrl}
+                onValueChanged={this.onNewInstanceChanged}
+                onEnterPressed={this.onAddInstance}
+                placeholder="https://git.example.com or https://example.com/gitlab"
+              />
+              <Button
+                onClick={this.onAddInstance}
+                disabled={this.state.newInstanceUrl.trim().length === 0}
+              >
+                Add
+              </Button>
+            </Row>
+            {this.state.newInstanceError !== null && (
+              <div className="gitlab-token-test error" role="alert">
+                {this.state.newInstanceError}
+              </div>
+            )}
+            <div className="settings-description">
+              <p>
+                Servers with "gitlab" in their name are detected automatically.
+                Add any other server here, including ones served from a sub path
+                or plain HTTP.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -240,6 +366,69 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
           </div>
         </div>
       </DialogContent>
+    )
+  }
+
+  private renderTokenRow(
+    key: string,
+    title: string,
+    note: string | null,
+    isLoading: boolean,
+    removableUrl: string | null,
+    placeholder = 'glpat-…'
+  ) {
+    const token = this.props.tokens?.get(key) ?? ''
+    const testing = this.state.testing.has(key)
+    const result = this.state.testResults.get(key)
+
+    return (
+      <div className="gitlab-token-row" key={key || 'default'}>
+        <div className="gitlab-token-title">
+          <strong>{title}</strong>
+          {note !== null && <span className="gitlab-token-note">{note}</span>}
+        </div>
+        <Row>
+          <TextBox
+            ariaLabel={`Token for ${title}`}
+            type="password"
+            value={token}
+            onValueChanged={this.getTokenHandler(key)}
+            placeholder={isLoading ? 'Loading…' : placeholder}
+            disabled={isLoading}
+          />
+          <Button
+            onClick={this.getTestHandler(key)}
+            disabled={isLoading || token.trim() === '' || testing}
+          >
+            {testing ? 'Testing…' : 'Test'}
+          </Button>
+          <Button
+            onClick={this.getClearHandler(key)}
+            disabled={isLoading || token === ''}
+          >
+            Clear
+          </Button>
+          {removableUrl !== null && (
+            <Button
+              onClick={this.getRemoveHandler(removableUrl)}
+              ariaLabel={`Remove ${title}`}
+              tooltip="Remove this server"
+            >
+              Remove
+            </Button>
+          )}
+        </Row>
+        {result !== undefined && (
+          <div
+            className={`gitlab-token-test ${result.ok ? 'ok' : 'error'}`}
+            role="status"
+          >
+            {result.lines.map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+          </div>
+        )}
+      </div>
     )
   }
 }

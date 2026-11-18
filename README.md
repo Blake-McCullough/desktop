@@ -107,8 +107,10 @@ already exists at the destination.
 
 ### GitLab CI/CD pipelines
 
-Set a personal access token in **Preferences → GitLab** (`read_api` to view,
-`api` to also run manual jobs).
+Set personal access tokens in **Preferences → GitLab** (`read_api` to view,
+`api` to also run manual jobs). Each GitLab server can have its own token —
+gitlab.com, your self-hosted servers, and any found in your repositories are
+listed — and a default token covers any server without one.
 
 - **Sidebar**: a dot per job for the latest commit you've pushed on the
   current branch; running jobs pulse, and clicking a dot opens the job in
@@ -129,7 +131,8 @@ Set a personal access token in **Preferences → GitLab** (`read_api` to view,
   changes, and idle repositories are checked every 5–10 minutes. If GitLab
   rate limits anyway, updates pause until GitLab's reset time and the
   sidebar says when they'll resume.
-- **Test token** in Preferences shows which user and scopes the token has.
+- **Test** next to each token shows which user and scopes it has on that
+  server. A rejected token only pauses that server's pipelines.
 
 <p align="center"><img src="docs/screenshots/clone-from-gitlab.png" alt="Cloning from GitLab: projects grouped by GitLab group and subgroup" width="480" /></p>
 

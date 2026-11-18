@@ -134,6 +134,15 @@ async function mapWithConcurrency<T>(
   )
 }
 
+function hostOf(instanceUrl: string) {
+  try {
+    const url = new URL(instanceUrl)
+    return url.host + (url.pathname === '/' ? '' : url.pathname)
+  } catch {
+    return instanceUrl
+  }
+}
+
 function describeError(e: unknown): string {
   if (e instanceof GitLabApiError) {
     if (e.isUnauthorized) {
@@ -188,8 +197,11 @@ class GitLabPipelineStatusStore {
   private readonly pendingCommitKeys = new Set<string>()
   private readonly commitListeners = new Map<string, Set<() => void>>()
 
-  /** Set when GitLab rejects the token; cleared when settings change. */
-  private authError: string | null = null
+  /**
+   * Instances whose token GitLab rejected, with the message to show; their
+   * repositories pause until the settings change.
+   */
+  private readonly authErrors = new Map<string, string>()
 
   private getRepositories: (() => ReadonlyArray<Repository>) | null = null
   private pollTimer: number | null = null
@@ -200,7 +212,7 @@ class GitLabPipelineStatusStore {
   public constructor() {
     this.disposables.push(
       onGitLabSettingsChanged(() => {
-        this.authError = null
+        this.authErrors.clear()
         this.projects.clear()
         this.hostProbes.clear()
         this.commitCache.clear()
@@ -282,9 +294,32 @@ class GitLabPipelineStatusStore {
     return this.statuses
   }
 
-  /** The current authentication problem, if GitLab rejected the token. */
+  /**
+   * The current authentication problem, if GitLab rejected a token: which
+   * instance(s), so the right token can be fixed.
+   */
   public getAuthError(): string | null {
-    return this.authError
+    if (this.authErrors.size === 0) {
+      return null
+    }
+    const hosts = [...this.authErrors.keys()].map(hostOf)
+    return `GitLab rejected the token for ${hosts.join(
+      ', '
+    )} (401). Check it in Preferences → GitLab.`
+  }
+
+  /**
+   * The GitLab instances the repositories belong to, as far as they've been
+   * resolved so far (for listing them in Preferences).
+   */
+  public getKnownInstances(): ReadonlyArray<string> {
+    const instances = new Set<string>()
+    for (const { project } of this.projects.values()) {
+      if (project !== null) {
+        instances.add(project.webBaseUrl)
+      }
+    }
+    return [...instances]
   }
 
   /** When requests resume after GitLab rate limited us, or `null`. */
@@ -393,18 +428,24 @@ class GitLabPipelineStatusStore {
     repositories: ReadonlyArray<Repository>,
     options: { force?: boolean } = {}
   ): Promise<void> {
-    const token = await getGitLabToken()
-    if (
-      token === null ||
-      this.authError !== null ||
-      getGitLabRateLimitedUntil() !== null
-    ) {
+    if (getGitLabRateLimitedUntil() !== null) {
       return
     }
 
     await mapWithConcurrency(repositories, RefreshConcurrency, repository =>
-      this.refreshRepository(repository, token, options.force === true)
+      this.refreshRepository(repository, options.force === true)
     )
+  }
+
+  /**
+   * The token for a project's instance, or null when there's none (or GitLab
+   * rejected it and we're waiting for the user to fix it).
+   */
+  private async getTokenFor(project: IGitLabProject): Promise<string | null> {
+    if (this.authErrors.has(project.webBaseUrl)) {
+      return null
+    }
+    return getGitLabToken(project.webBaseUrl)
   }
 
   private setRepositoryState(
@@ -427,7 +468,6 @@ class GitLabPipelineStatusStore {
 
   private async refreshRepository(
     repository: Repository,
-    token: string,
     force: boolean
   ): Promise<void> {
     if (repository.missing || this.inFlightRepositoryIds.has(repository.id)) {
@@ -446,6 +486,11 @@ class GitLabPipelineStatusStore {
           this.statuses = statuses
           this.scheduleEmit()
         }
+        return
+      }
+
+      const token = await this.getTokenFor(project)
+      if (token === null) {
         return
       }
 
@@ -535,7 +580,7 @@ class GitLabPipelineStatusStore {
         this.storeCommitResult(this.commitKey(repository, sha), pipeline)
       }
     } catch (e) {
-      this.handleError(repository, e)
+      this.handleError(repository, e, this.projects.get(repository.id)?.project)
       this.nextDue.set(repository.id, Date.now() + ErrorRecheckMs)
       if (markedFetching) {
         this.setRepositoryState(repository.id, {
@@ -548,13 +593,21 @@ class GitLabPipelineStatusStore {
     }
   }
 
-  private handleError(repository: Repository, e: unknown) {
+  private handleError(
+    repository: Repository,
+    e: unknown,
+    project?: IGitLabProject | null
+  ) {
     if (e instanceof GitLabApiError) {
-      if (e.isUnauthorized) {
-        // Every other request will fail the same way. Stop until the user
-        // fixes the token instead of hammering the server.
-        this.authError = describeError(e)
-        log.warn(`[GitLab] token rejected; pausing pipeline status updates`)
+      if (e.isUnauthorized && project != null) {
+        // Every other request to this instance will fail the same way. Stop
+        // until the user fixes its token instead of hammering the server.
+        this.authErrors.set(project.webBaseUrl, describeError(e))
+        log.warn(
+          `[GitLab] token rejected by ${hostOf(
+            project.webBaseUrl
+          )}; pausing pipeline status updates for it`
+        )
         this.scheduleEmit()
         return
       }
@@ -711,14 +764,16 @@ class GitLabPipelineStatusStore {
    * new state. Throws with a user-presentable message on failure.
    */
   public async playJob(repository: Repository, jobId: number): Promise<void> {
-    const token = await getGitLabToken()
-    if (token === null) {
-      throw new Error('No GitLab token is configured.')
-    }
-
     const project = await this.resolveProject(repository)
     if (project === null) {
       throw new Error(`'${repository.name}' isn't a GitLab project.`)
+    }
+
+    const token = await getGitLabToken(project.webBaseUrl)
+    if (token === null) {
+      throw new Error(
+        `No GitLab token is set for ${hostOf(project.webBaseUrl)}.`
+      )
     }
 
     // Only ever run jobs from the latest pushed commit's pipeline. If a new
@@ -809,7 +864,6 @@ class GitLabPipelineStatusStore {
     if (
       (cached === undefined || this.isCommitEntryStale(cached)) &&
       !this.pendingCommitKeys.has(key) &&
-      this.authError === null &&
       getGitLabRateLimitedUntil() === null
     ) {
       this.pendingCommitKeys.add(key)
@@ -834,15 +888,13 @@ class GitLabPipelineStatusStore {
     sha: string,
     key: string
   ): Promise<void> {
+    let project: IGitLabProject | null = null
     try {
-      const token = await getGitLabToken()
-      if (token === null) {
-        return
-      }
-
-      const project = await this.resolveProject(repository)
+      project = await this.resolveProject(repository)
+      const token = project === null ? null : await this.getTokenFor(project)
       if (
         project === null ||
+        token === null ||
         !(await this.ensureProjectAccessible(repository, project, token))
       ) {
         return
@@ -854,7 +906,7 @@ class GitLabPipelineStatusStore {
       })
       this.storeCommitResult(key, pipeline)
     } catch (e) {
-      this.handleError(repository, e)
+      this.handleError(repository, e, project)
     }
   }
 }
