@@ -1,3 +1,4 @@
+import { getBoolean, setBoolean } from './local-storage'
 import {
   QuickSwitcherDefaultAccelerator,
   QuickSwitcherMenuItemId,
@@ -6,6 +7,7 @@ import {
 } from '../models/shortcuts'
 
 const ShortcutOverridesKey = 'menu-shortcut-overrides'
+const QuickSwitcherRepositoriesOnlyKey = 'quick-switcher/repositories-only'
 
 /** Shortcuts changed in Preferences → Shortcuts, by menu item id. */
 export function getShortcutOverrides(): ShortcutOverrides {
@@ -28,4 +30,13 @@ export function getQuickSwitcherAccelerator(): string | null {
     return QuickSwitcherDefaultAccelerator
   }
   return override === '' ? null : override
+}
+
+/** Whether the quick switcher lists only repositories (no branches). */
+export function getQuickSwitcherRepositoriesOnly(): boolean {
+  return getBoolean(QuickSwitcherRepositoriesOnlyKey, false)
+}
+
+export function setQuickSwitcherRepositoriesOnly(value: boolean) {
+  setBoolean(QuickSwitcherRepositoriesOnlyKey, value)
 }

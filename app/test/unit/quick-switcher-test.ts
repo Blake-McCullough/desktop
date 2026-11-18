@@ -67,6 +67,14 @@ describe('buildQuickSwitcherItems', () => {
     )
   })
 
+  it('lists only repositories when locked to them', () => {
+    const items = buildQuickSwitcherItems(input({ repositoriesOnly: true }))
+    assert.deepEqual(
+      items.map(i => i.kind),
+      ['repository', 'repository']
+    )
+  })
+
   it('leaves out missing repositories', () => {
     const missing = new Repository('/gone', 4, null, true)
     const items = buildQuickSwitcherItems(

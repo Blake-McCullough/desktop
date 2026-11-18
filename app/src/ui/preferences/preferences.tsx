@@ -18,7 +18,11 @@ import {
 } from '../../lib/linux-menu-bar'
 import { Shortcuts } from './shortcuts'
 import { ShortcutOverrides } from '../../models/shortcuts'
-import { getShortcutOverrides } from '../../lib/shortcut-settings'
+import {
+  getQuickSwitcherRepositoriesOnly,
+  getShortcutOverrides,
+  setQuickSwitcherRepositoriesOnly,
+} from '../../lib/shortcut-settings'
 import {
   ITagColorRule,
   getTagColorRules,
@@ -244,6 +248,7 @@ interface IPreferencesState {
   /** Tag color rules as edited. */
   readonly tagColorRules: ReadonlyArray<ITagColorRule>
   readonly shortcutOverrides: ShortcutOverrides
+  readonly quickSwitcherRepositoriesOnly: boolean
   /** Self-hosted GitLab instance URLs as edited. */
   readonly gitlabInstanceUrls: ReadonlyArray<string>
 }
@@ -325,6 +330,7 @@ export class Preferences extends React.Component<
       initialGitlabTokens: undefined,
       tagColorRules: getTagColorRules(),
       shortcutOverrides: getShortcutOverrides(),
+      quickSwitcherRepositoriesOnly: getQuickSwitcherRepositoriesOnly(),
       gitlabInstanceUrls: getGitLabInstanceUrls(),
     }
   }
@@ -911,6 +917,12 @@ export class Preferences extends React.Component<
           <Shortcuts
             overrides={this.state.shortcutOverrides}
             onOverridesChanged={this.onShortcutOverridesChanged}
+            quickSwitcherRepositoriesOnly={
+              this.state.quickSwitcherRepositoriesOnly
+            }
+            onQuickSwitcherRepositoriesOnlyChanged={
+              this.onQuickSwitcherRepositoriesOnlyChanged
+            }
           />
         )
         break
@@ -955,6 +967,12 @@ export class Preferences extends React.Component<
 
   private onNotificationsEnabledChanged = (notificationsEnabled: boolean) => {
     this.setState({ notificationsEnabled })
+  }
+
+  private onQuickSwitcherRepositoriesOnlyChanged = (
+    quickSwitcherRepositoriesOnly: boolean
+  ) => {
+    this.setState({ quickSwitcherRepositoriesOnly })
   }
 
   private onShortcutOverridesChanged = (
@@ -1389,6 +1407,8 @@ export class Preferences extends React.Component<
     ) {
       dispatcher.setShortcutOverrides(this.state.shortcutOverrides)
     }
+
+    setQuickSwitcherRepositoriesOnly(this.state.quickSwitcherRepositoriesOnly)
 
     if (this.state.tagColorRules !== getTagColorRules()) {
       setTagColorRules(this.state.tagColorRules)

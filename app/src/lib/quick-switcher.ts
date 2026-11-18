@@ -45,6 +45,8 @@ export interface IQuickSwitcherInput {
   readonly currentBranch: Branch | null
   /** Branch names, most recently checked out first. */
   readonly recentBranchNames: ReadonlyArray<string>
+  /** List repositories only, without the current repository's branches. */
+  readonly repositoriesOnly?: boolean
 }
 
 function rankBy<T>(order: ReadonlyArray<T>) {
@@ -78,6 +80,10 @@ export function buildQuickSwitcherItems(
         repository: r,
       }
     })
+
+  if (input.repositoriesOnly === true) {
+    return repositories
+  }
 
   const current = input.currentBranch?.name
   const local = input.branches.filter(

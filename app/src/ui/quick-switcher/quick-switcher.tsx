@@ -21,6 +21,11 @@ import {
 } from '../repositories-list/custom-repository-groups-store'
 import { Repositoryish } from '../repositories-list/group-repositories'
 import { formatAccelerator } from '../../models/shortcuts'
+import { Checkbox, CheckboxValue } from '../lib/checkbox'
+import {
+  getQuickSwitcherRepositoriesOnly,
+  setQuickSwitcherRepositoriesOnly,
+} from '../../lib/shortcut-settings'
 
 interface IQuickSwitcherProps {
   readonly dispatcher: Dispatcher
@@ -39,6 +44,8 @@ interface IQuickSwitcherProps {
 interface IQuickSwitcherState {
   readonly query: string
   readonly selectedIndex: number
+  /** Only list repositories (remembered between uses). */
+  readonly repositoriesOnly: boolean
 }
 
 const ListId = 'quick-switcher-results'
@@ -52,6 +59,7 @@ export class QuickSwitcher extends React.Component<
   IQuickSwitcherState
 > {
   private listRef = React.createRef<HTMLUListElement>()
+  private inputRef = React.createRef<TextBox>()
 
   private getItems = memoizeOne(
     (
@@ -60,7 +68,8 @@ export class QuickSwitcher extends React.Component<
       repository: Repository | null,
       branches: ReadonlyArray<Branch>,
       currentBranch: Branch | null,
-      recentBranches: ReadonlyArray<Branch>
+      recentBranches: ReadonlyArray<Branch>,
+      repositoriesOnly: boolean
     ) => {
       const groups = new Map(
         getCustomGroups().map(g => [g.id, { name: g.name, color: g.color }])
@@ -76,6 +85,7 @@ export class QuickSwitcher extends React.Component<
         branches,
         currentBranch,
         recentBranchNames: recentBranches.map(b => b.name),
+        repositoriesOnly,
       })
     }
   )
@@ -87,7 +97,11 @@ export class QuickSwitcher extends React.Component<
 
   public constructor(props: IQuickSwitcherProps) {
     super(props)
-    this.state = { query: '', selectedIndex: 0 }
+    this.state = {
+      query: '',
+      selectedIndex: 0,
+      repositoriesOnly: getQuickSwitcherRepositoriesOnly(),
+    }
   }
 
   private get matches(): ReadonlyArray<IQuickSwitcherMatch> {
@@ -98,7 +112,8 @@ export class QuickSwitcher extends React.Component<
       p.repository,
       p.branches,
       p.currentBranch,
-      p.recentBranches
+      p.recentBranches,
+      this.state.repositoriesOnly
     )
     return this.getMatches(items, this.state.query)
   }
@@ -112,6 +127,16 @@ export class QuickSwitcher extends React.Component<
         ?.querySelector('[aria-selected="true"]')
         ?.scrollIntoView({ block: 'nearest' })
     }
+  }
+
+  private onRepositoriesOnlyChanged = (
+    event: React.FormEvent<HTMLInputElement>
+  ) => {
+    const repositoriesOnly = event.currentTarget.checked
+    setQuickSwitcherRepositoriesOnly(repositoriesOnly)
+    this.setState({ repositoriesOnly, selectedIndex: 0 })
+    // Carry on typing.
+    this.inputRef.current?.focus()
   }
 
   private onQueryChanged = (query: string) => {
@@ -216,6 +241,8 @@ export class QuickSwitcher extends React.Component<
   public render() {
     const matches = this.matches
     const { accelerator, repository } = this.props
+    const { repositoriesOnly } = this.state
+    const what = repositoriesOnly ? 'repositories' : 'repositories or branches'
     const hint =
       accelerator === null
         ? null
@@ -229,15 +256,16 @@ export class QuickSwitcher extends React.Component<
       >
         <DialogContent>
           <TextBox
+            ref={this.inputRef}
             className="quick-switcher-input"
             placeholder={
-              repository === null
+              repository === null || repositoriesOnly
                 ? 'Repository name'
                 : `Repository, or branch of ${
                     repository.alias ?? repository.name
                   }`
             }
-            ariaLabel="Repository or branch"
+            ariaLabel={repositoriesOnly ? 'Repository' : 'Repository or branch'}
             ariaControls={ListId}
             prefixedIcon={octicons.search}
             value={this.state.query}
@@ -248,7 +276,7 @@ export class QuickSwitcher extends React.Component<
           />
           {matches.length === 0 ? (
             <p className="quick-switcher-empty">
-              No repositories or branches match “{this.state.query.trim()}”.
+              No {what} match “{this.state.query.trim()}”.
             </p>
           ) : (
             <ul
@@ -256,11 +284,19 @@ export class QuickSwitcher extends React.Component<
               ref={this.listRef}
               className="quick-switcher-results"
               role="listbox"
-              aria-label="Repositories and branches"
+              aria-label={
+                repositoriesOnly ? 'Repositories' : 'Repositories and branches'
+              }
             >
               {matches.map(this.renderItem)}
             </ul>
           )}
+          <Checkbox
+            className="quick-switcher-repositories-only"
+            label="Repositories only"
+            value={repositoriesOnly ? CheckboxValue.On : CheckboxValue.Off}
+            onChange={this.onRepositoriesOnlyChanged}
+          />
           <p className="quick-switcher-hint">
             ↑ ↓ to choose, Enter to open. Change the shortcut
             {hint !== null && <> ({hint})</>} in{' '}

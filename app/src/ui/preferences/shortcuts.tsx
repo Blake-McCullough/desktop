@@ -3,6 +3,7 @@ import classNames from 'classnames'
 import { DialogContent } from '../dialog'
 import { Button } from '../lib/button'
 import { TextBox } from '../lib/text-box'
+import { Checkbox, CheckboxValue } from '../lib/checkbox'
 import * as octicons from '../octicons/octicons.generated'
 import { getMenuShortcuts, setIgnoreMenuShortcuts } from '../main-process-proxy'
 import {
@@ -19,6 +20,9 @@ import {
 interface IShortcutsProps {
   readonly overrides: ShortcutOverrides
   readonly onOverridesChanged: (overrides: ShortcutOverrides) => void
+  /** Whether the quick switcher lists only repositories. */
+  readonly quickSwitcherRepositoriesOnly: boolean
+  readonly onQuickSwitcherRepositoriesOnlyChanged: (value: boolean) => void
 }
 
 interface IShortcutsState {
@@ -153,6 +157,14 @@ export class Shortcuts extends React.Component<
     }
   }
 
+  private onRepositoriesOnlyChanged = (
+    event: React.FormEvent<HTMLInputElement>
+  ) => {
+    this.props.onQuickSwitcherRepositoriesOnlyChanged(
+      event.currentTarget.checked
+    )
+  }
+
   private onFilterChanged = (filter: string) => {
     this.setState({ filter })
   }
@@ -210,11 +222,21 @@ export class Shortcuts extends React.Component<
             <h2>Quick switcher</h2>
             <p className="settings-description">
               Jump to another repository, or a branch of this one, by typing
-              part of its name.
+              part of its name. You can also tick "Repositories only" in the
+              switcher itself.
             </p>
             <table className="shortcuts-table">
               <tbody>{this.renderRow(switcher, conflicts, false)}</tbody>
             </table>
+            <Checkbox
+              label="Repositories only (don't list branches)"
+              value={
+                this.props.quickSwitcherRepositoriesOnly
+                  ? CheckboxValue.On
+                  : CheckboxValue.Off
+              }
+              onChange={this.onRepositoriesOnlyChanged}
+            />
           </div>
         )}
         <div className="advanced-section">

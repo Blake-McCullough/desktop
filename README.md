@@ -153,7 +153,8 @@ listed.
 Press **Ctrl+K** (**⌘K** on macOS), or use **View → Quick switcher**, and
 type part of a name to jump to another repository or check out a branch of
 the current one. Repositories show their sidebar group and colour; recently
-used repositories and branches come first.
+used repositories and branches come first. Tick **Repositories only** (in
+the switcher or in Options → Shortcuts) to leave branches out.
 
 Every menu shortcut, including the quick switcher's, can be changed in
 **Options → Shortcuts** (**Settings → Shortcuts** on macOS): click a
