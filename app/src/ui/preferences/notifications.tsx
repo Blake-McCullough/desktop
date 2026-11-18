@@ -11,10 +11,16 @@ import {
   getNotificationsPermission,
   requestNotificationsPermission,
 } from '../main-process-proxy'
+import { IPipelineNotificationSettings } from '../../lib/gitlab/pipeline-notifications'
+import { PipelineNotificationOptions } from '../lib/pipeline-notification-options'
 
 interface INotificationPreferencesProps {
   readonly notificationsEnabled: boolean
   readonly onNotificationsEnabledChanged: (checked: boolean) => void
+  readonly pipelineNotifications: IPipelineNotificationSettings
+  readonly onPipelineNotificationsChanged: (
+    settings: IPipelineNotificationSettings
+  ) => void
 }
 
 interface INotificationPreferencesState {
@@ -64,6 +70,21 @@ export class Notifications extends React.Component<
           <p className="settings-description">
             Allows the display of notifications when high-signal events take
             place in the current repository.{this.renderNotificationHint()}
+          </p>
+        </div>
+        <div className="advanced-section">
+          <h2>GitLab pipelines</h2>
+          <p className="settings-description">
+            Notify me about the pipeline for the commit I pushed:
+          </p>
+          <PipelineNotificationOptions
+            settings={this.props.pipelineNotifications}
+            disabled={!this.props.notificationsEnabled}
+            onChange={this.props.onPipelineNotificationsChanged}
+          />
+          <p className="settings-description">
+            These are the defaults for every repository. A repository can use
+            its own choices under Repository settings → Notifications.
           </p>
         </div>
       </DialogContent>

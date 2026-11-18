@@ -2,6 +2,14 @@ import * as React from 'react'
 import { ILocalRepositoryState, Repository } from '../../models/repository'
 import { Repositoryish } from './group-repositories'
 import { gitLabPipelineStatusStore } from '../../lib/stores/gitlab-pipeline-status-store'
+import { Disposable } from 'event-kit'
+import { showNotification } from '../../lib/notifications/show-notification'
+import { getNotificationsEnabled } from '../../lib/stores/notifications-store'
+import {
+  IPipelineNotification,
+  describePipelineNotification,
+} from '../../lib/gitlab/pipeline-notifications'
+import { shell } from '../../lib/app-shell'
 
 interface IGitLabPipelinePollerProps {
   readonly repositories: ReadonlyArray<Repositoryish>
@@ -24,8 +32,13 @@ interface IGitLabPipelinePollerProps {
  */
 export class GitLabPipelinePoller extends React.PureComponent<IGitLabPipelinePollerProps> {
   private repositoriesRefreshTimer: number | null = null
+  private notificationSubscription: Disposable | null = null
 
   public componentDidMount() {
+    this.notificationSubscription =
+      gitLabPipelineStatusStore.onPipelineNotification(
+        ({ repository, notification }) => this.notify(repository, notification)
+      )
     // The store owns the polling loop (and is a no-op without a token), so
     // it can pause while the window is hidden and back off on errors.
     gitLabPipelineStatusStore.startPolling(this.getPollableRepositories)
@@ -69,6 +82,8 @@ export class GitLabPipelinePoller extends React.PureComponent<IGitLabPipelinePol
   }
 
   public componentWillUnmount() {
+    this.notificationSubscription?.dispose()
+    this.notificationSubscription = null
     gitLabPipelineStatusStore.stopPolling()
     if (this.repositoriesRefreshTimer !== null) {
       window.clearTimeout(this.repositoriesRefreshTimer)
@@ -89,6 +104,44 @@ export class GitLabPipelinePoller extends React.PureComponent<IGitLabPipelinePol
     this.props.repositories.filter(
       (r): r is Repository => r instanceof Repository && !r.missing
     )
+
+  /**
+   * Show a desktop notification for a pipeline event. Clicking it opens the
+   * pipeline window on the job that matters (the first failed or waiting
+   * one), or GitLab when there's no pipeline to open.
+   */
+  private notify(repository: Repository, notification: IPipelineNotification) {
+    if (!getNotificationsEnabled()) {
+      return
+    }
+    const { pipeline, kind, manualJobs } = notification
+    const { title, body } = describePipelineNotification(
+      notification,
+      repository.alias ?? repository.name
+    )
+    const job =
+      kind === 'failed'
+        ? pipeline.jobs.find(j => j.status === 'failed')
+        : kind === 'manual'
+        ? manualJobs[0]
+        : undefined
+
+    showNotification({
+      title,
+      body,
+      onClick: async () => {
+        const opened = await gitLabPipelineStatusStore.openPipelineWindow(
+          repository,
+          pipeline,
+          job?.id ?? null
+        )
+        const url = job?.webUrl ?? pipeline.webUrl
+        if (!opened && url !== undefined) {
+          shell.openExternal(url)
+        }
+      },
+    }).catch(e => log.warn('Failed to show a pipeline notification', e))
+  }
 
   public render() {
     return null

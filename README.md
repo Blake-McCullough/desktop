@@ -122,6 +122,11 @@ listed — and a default token covers any server without one.
   colours and collapsible sections like GitLab's own job page. A running
   job's log follows new output live. Run manual jobs, retry or cancel jobs or
   the whole pipeline, and download artifacts without opening the browser.
+- **Notifications**: a desktop notification when the pipeline for a commit
+  you pushed passes or fails, or stops at a manual job waiting for you.
+  Choose which in **Preferences → Notifications**, and override them for a
+  repository under **Repository settings → Notifications**. Clicking one
+  opens the pipeline window on the failed or waiting job.
 - **Clone from GitLab**: **File → Clone repository → GitLab** lists every
   project your token can see, grouped by GitLab group and subgroup, with a
   filter and an instance picker if you use more than one instance. Cloning

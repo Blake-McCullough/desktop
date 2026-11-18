@@ -22,6 +22,11 @@ import {
   resolveGitLabInstance,
   verifyGitLabProject,
 } from '../gitlab/gitlab-api'
+import {
+  IPipelineNotification,
+  getPipelineNotification,
+  getPipelineNotificationSettings,
+} from '../gitlab/pipeline-notifications'
 
 /** How many repositories to refresh concurrently. */
 const RefreshConcurrency = 4
@@ -246,6 +251,21 @@ class GitLabPipelineStatusStore {
   /** Subscribe to changes to per-repository statuses. */
   public onDidUpdate(fn: (statuses: IGitLabPipelineStatusMap) => void) {
     return this.emitter.on('did-update', fn)
+  }
+
+  /**
+   * Subscribe to pipeline events worth a desktop notification: the pushed
+   * commit's pipeline passed, failed, or is waiting for a manual job. Fires
+   * only for changes seen while polling, according to each repository's
+   * notification settings.
+   */
+  public onPipelineNotification(
+    fn: (event: {
+      readonly repository: Repository
+      readonly notification: IPipelineNotification
+    }) => void
+  ) {
+    return this.emitter.on('pipeline-notification', fn)
   }
 
   /** Subscribe to changes to a single commit's pipeline. */
@@ -554,6 +574,11 @@ class GitLabPipelineStatusStore {
         allowShaLookup: true,
       })
       const awaitingPipeline = pipeline === null && recentlyPushed
+      const notification = getPipelineNotification(
+        previous,
+        { pushedSha: sha, pipeline, awaitingPipeline },
+        getPipelineNotificationSettings(repository.id)
+      )
       this.setRepositoryState(repository.id, {
         pipeline,
         pushedSha: sha,
@@ -574,6 +599,10 @@ class GitLabPipelineStatusStore {
             ? ActiveRecheckMs
             : FinishedRecheckMs)
       )
+
+      if (notification !== null) {
+        this.emitter.emit('pipeline-notification', { repository, notification })
+      }
 
       // Keep the per-commit cache in sync so the history list doesn't need
       // to ask again for this commit.

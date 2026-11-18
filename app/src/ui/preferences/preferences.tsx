@@ -104,6 +104,11 @@ import {
   enableFormattingPreferences,
 } from '../../lib/feature-flag'
 import { validateCopilotAppPath } from '../../lib/copilot-app'
+import {
+  IPipelineNotificationSettings,
+  getDefaultPipelineNotificationSettings,
+  setDefaultPipelineNotificationSettings,
+} from '../../lib/gitlab/pipeline-notifications'
 
 interface IPreferencesProps {
   readonly dispatcher: Dispatcher
@@ -161,6 +166,7 @@ interface IPreferencesState {
   readonly useWindowsOpenSSH: boolean
   readonly showCommitLengthWarning: boolean
   readonly notificationsEnabled: boolean
+  readonly pipelineNotifications: IPipelineNotificationSettings
   readonly optOutOfUsageTracking: boolean
   readonly useExternalCredentialHelper: boolean
   readonly confirmRepositoryRemoval: boolean
@@ -268,6 +274,7 @@ export class Preferences extends React.Component<
       useWindowsOpenSSH: false,
       showCommitLengthWarning: false,
       notificationsEnabled: true,
+      pipelineNotifications: getDefaultPipelineNotificationSettings(),
       optOutOfUsageTracking: false,
       useExternalCredentialHelper: false,
       confirmRepositoryRemoval: false,
@@ -778,6 +785,8 @@ export class Preferences extends React.Component<
           <Notifications
             notificationsEnabled={this.state.notificationsEnabled}
             onNotificationsEnabledChanged={this.onNotificationsEnabledChanged}
+            pipelineNotifications={this.state.pipelineNotifications}
+            onPipelineNotificationsChanged={this.onPipelineNotificationsChanged}
           />
         )
         break
@@ -919,6 +928,12 @@ export class Preferences extends React.Component<
 
   private onNotificationsEnabledChanged = (notificationsEnabled: boolean) => {
     this.setState({ notificationsEnabled })
+  }
+
+  private onPipelineNotificationsChanged = (
+    pipelineNotifications: IPipelineNotificationSettings
+  ) => {
+    this.setState({ pipelineNotifications })
   }
 
   private onUseExternalCredentialHelperChanged = (value: boolean) => {
@@ -1222,6 +1237,7 @@ export class Preferences extends React.Component<
     dispatcher.setUseWindowsOpenSSH(this.state.useWindowsOpenSSH)
     dispatcher.setShowCommitLengthWarning(this.state.showCommitLengthWarning)
     dispatcher.setNotificationsEnabled(this.state.notificationsEnabled)
+    setDefaultPipelineNotificationSettings(this.state.pipelineNotifications)
 
     await dispatcher.setStatsOptOut(this.state.optOutOfUsageTracking, false)
 

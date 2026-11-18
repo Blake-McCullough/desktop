@@ -27,6 +27,14 @@ import { Account, isSameAccount } from '../../models/account'
 import { Octicon } from '../octicons'
 import * as octicons from '../octicons/octicons.generated'
 import { Select } from '../lib/select'
+import { PipelineNotifications } from './pipeline-notifications'
+import {
+  IPipelineNotificationSettings,
+  getDefaultPipelineNotificationSettings,
+  getRepositoryPipelineNotificationOverride,
+  setRepositoryPipelineNotificationOverride,
+} from '../../lib/gitlab/pipeline-notifications'
+import { getNotificationsEnabled } from '../../lib/stores/notifications-store'
 
 interface IRepositorySettingsProps {
   readonly initialSelectedTab?: RepositorySettingsTab
@@ -42,6 +50,7 @@ export enum RepositorySettingsTab {
   Remote = 0,
   IgnoredFiles,
   GitConfig,
+  Notifications,
   ForkSettings,
 }
 
@@ -64,6 +73,7 @@ interface IRepositorySettingsState {
   readonly forkContributionTarget: ForkContributionTarget
   readonly isLoadingGitConfig: boolean
   readonly selectedLogin?: string | null
+  readonly pipelineNotifications: IPipelineNotificationSettings | null
 }
 
 export class RepositorySettings extends React.Component<
@@ -76,6 +86,9 @@ export class RepositorySettings extends React.Component<
     this.state = {
       selectedTab:
         this.props.initialSelectedTab || RepositorySettingsTab.Remote,
+      pipelineNotifications: getRepositoryPipelineNotificationOverride(
+        this.props.repository.id
+      ),
       remote: props.remote,
       ignoreText: null,
       ignoreTextHasChanged: false,
@@ -193,6 +206,10 @@ export class RepositorySettings extends React.Component<
               <Octicon className="icon" symbol={octicons.gitCommit} />
               {__DARWIN__ ? 'Git Config' : 'Git config'}
             </span>
+            <span>
+              <Octicon className="icon" symbol={octicons.bell} />
+              Notifications
+            </span>
             {showForkSettings && (
               <span>
                 <Octicon className="icon" symbol={octicons.repoForked} />
@@ -253,6 +270,17 @@ export class RepositorySettings extends React.Component<
             onForkContributionTargetChanged={
               this.onForkContributionTargetChanged
             }
+          />
+        )
+      }
+
+      case RepositorySettingsTab.Notifications: {
+        return (
+          <PipelineNotifications
+            override={this.state.pipelineNotifications}
+            defaults={getDefaultPipelineNotificationSettings()}
+            notificationsEnabled={getNotificationsEnabled()}
+            onChange={this.onPipelineNotificationsChanged}
           />
         )
       }
@@ -418,6 +446,11 @@ export class RepositorySettings extends React.Component<
       )
     }
 
+    setRepositoryPipelineNotificationOverride(
+      this.props.repository.id,
+      this.state.pipelineNotifications
+    )
+
     let shouldRefreshAuthor = false
     const gitLocationChanged =
       this.state.gitConfigLocation !== this.state.initialGitConfigLocation
@@ -486,6 +519,12 @@ export class RepositorySettings extends React.Component<
 
   private onIgnoreTextChanged = (text: string) => {
     this.setState({ ignoreText: text, ignoreTextHasChanged: true })
+  }
+
+  private onPipelineNotificationsChanged = (
+    pipelineNotifications: IPipelineNotificationSettings | null
+  ) => {
+    this.setState({ pipelineNotifications })
   }
 
   private onTabClicked = (index: number) => {
