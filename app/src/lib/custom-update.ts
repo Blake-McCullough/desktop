@@ -5,7 +5,8 @@ import * as semver from 'semver'
  * releases (published by the "Auto release (main)" workflow), not from
  * GitHub's own update server.
  */
-export const CustomUpdateRepository = 'Blake-McCullough/desktop'
+export const CustomUpdateRepository =
+  'Blake-McCullough/github-desktop-custom-gitlab-ci'
 
 /**
  * How this copy of the app was installed, which decides what an update

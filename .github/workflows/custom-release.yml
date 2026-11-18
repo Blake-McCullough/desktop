@@ -50,7 +50,7 @@ jobs:
           ls -la release
           if ! gh release view "$TAG" > /dev/null 2>&1; then
             gh release create "$TAG" --verify-tag \
-              --title "GitHub Desktop Custom $TAG" \
+              --title "GitHub Desktop Custom GitLab CI $TAG" \
               --notes "Windows: run GitHubDesktopCustomSetup-x64.exe (unsigned: choose More info, then Run anyway). Arch/CachyOS: sudo pacman -U the .pkg.tar.zst. Other Linux: the AppImage or .tar.gz. See the README for what's included."
           fi
           gh release upload "$TAG" release/* --clobber

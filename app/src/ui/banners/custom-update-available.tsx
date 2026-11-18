@@ -11,7 +11,7 @@ interface ICustomUpdateAvailableProps {
   readonly onDismissed: () => void
 }
 
-/** Tells the user a newer GitHub Desktop Custom release is out. */
+/** Tells the user a newer GitHub Desktop Custom GitLab CI release is out. */
 export class CustomUpdateAvailable extends React.Component<ICustomUpdateAvailableProps> {
   public render() {
     return (
@@ -22,8 +22,8 @@ export class CustomUpdateAvailable extends React.Component<ICustomUpdateAvailabl
       >
         <Octicon className="download-icon" symbol={octicons.desktopDownload} />
         <div className="banner-message">
-          GitHub Desktop Custom <strong>{this.props.version}</strong> is
-          available.{' '}
+          GitHub Desktop Custom GitLab CI <strong>{this.props.version}</strong>{' '}
+          is available.{' '}
           <LinkButton onClick={this.props.onUpdate}>Update now</LinkButton> or{' '}
           <LinkButton onClick={this.props.onShowDetails}>
             see what's new

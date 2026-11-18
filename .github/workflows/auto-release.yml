@@ -101,7 +101,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
           TITLE:
-            GitHub Desktop Custom ${{ needs.prepare.outputs.base }} (build ${{
+            GitHub Desktop Custom GitLab CI ${{ needs.prepare.outputs.base }} (build ${{
             github.run_number }})
         run: |
           gh release create "$TAG" release/* \

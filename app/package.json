@@ -1,13 +1,13 @@
 {
   "name": "desktop",
-  "productName": "GitHub Desktop Custom",
+  "productName": "GitHub Desktop Custom GitLab CI",
   "bundleID": "com.github.GitHubClientCustom",
   "companyName": "GitHub, Inc.",
   "version": "3.6.11-custom1",
   "main": "./main.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/desktop/desktop.git"
+    "url": "https://github.com/Blake-McCullough/github-desktop-custom-gitlab-ci.git"
   },
   "description": "Simple collaboration from your desktop",
   "author": {
