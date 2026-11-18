@@ -229,8 +229,26 @@ git fetch upstream
 git merge upstream/development
 ```
 
+## Privacy
+
+This build doesn't send usage statistics, crash reports or error reports to
+GitHub (GitHub Desktop does), and it doesn't check in with GitHub's servers
+for feature rollouts. It only talks to the services you use: GitHub or
+GitLab for your repositories, GitHub for sign-in and Copilot if you use
+them, and this repository's releases for update checks.
+
 ## Credits and licence
 
 Based on [GitHub Desktop](https://github.com/desktop/desktop) by GitHub,
 released under the [MIT licence](./LICENSE). This build isn't affiliated
 with or supported by GitHub.
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=Blake-McCullough%2Fgithub-desktop-custom-gitlab-ci&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Blake-McCullough/github-desktop-custom-gitlab-ci&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Blake-McCullough/github-desktop-custom-gitlab-ci&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Blake-McCullough/github-desktop-custom-gitlab-ci&type=date&legend=top-left" />
+ </picture>
+</a>
