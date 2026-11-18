@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { About } from './about'
 import { getName, getVersion } from '../lib/app-proxy'
-import { IUpdateState, UpdateStatus } from '../lib/update-store'
+import { ICustomUpdateState } from '../lib/custom-update-store'
 
 interface IAboutTestDialogProps {
   /**
@@ -17,9 +17,13 @@ interface IAboutTestDialogProps {
 }
 
 interface IAboutTestDialogState {
-  readonly updateState: IUpdateState
+  readonly updateState: ICustomUpdateState
 }
 
+/**
+ * The About dialog with a pretend update check, for trying out its states
+ * (Help → Test menu in development builds).
+ */
 export class AboutTestDialog extends React.Component<
   IAboutTestDialogProps,
   IAboutTestDialogState
@@ -31,14 +35,56 @@ export class AboutTestDialog extends React.Component<
 
     this.state = {
       updateState: {
-        status: UpdateStatus.UpdateNotAvailable,
-        lastSuccessfulCheck: new Date(Date.now() - 1000 * 60 * 60),
-        isX64ToARM64ImmediateAutoUpdate: false,
-        newReleases: [],
-        prioritizeUpdate: false,
-        prioritizeUpdateInfoUrl: undefined,
+        lastCheck: {
+          currentVersion: getVersion(),
+          installKind: 'manual',
+          latest: null,
+          isUpdateAvailable: false,
+          error: null,
+        },
+        lastCheckedAt: new Date(Date.now() - 1000 * 60 * 60),
+        isChecking: false,
+        progress: null,
+        isInstalling: false,
+        installError: null,
+        manualCommand: null,
+        dismissedVersion: null,
       },
     }
+  }
+
+  private onCheckForUpdates = async () => {
+    this.setUpdateState({ isChecking: true })
+    await this.delay(3000)
+    this.setUpdateState({
+      isChecking: false,
+      lastCheckedAt: new Date(),
+      lastCheck: {
+        currentVersion: getVersion(),
+        installKind: 'manual',
+        latest: {
+          version: '99.0.0',
+          tag: 'v99.0.0',
+          name: 'v99.0.0',
+          notes: '',
+          htmlUrl: 'https://example.com',
+          publishedAt: new Date().toISOString(),
+          asset: null,
+          squirrelPackage: null,
+        },
+        isUpdateAvailable: true,
+        error: null,
+      },
+    })
+  }
+
+  private onInstallUpdate = async () => {
+    this.setUpdateState({ isInstalling: true })
+    await this.delay(3000)
+    this.setUpdateState({
+      isInstalling: false,
+      installError: 'This is only a test.',
+    })
   }
 
   private delay = (ms: number) => {
@@ -60,34 +106,23 @@ export class AboutTestDialog extends React.Component<
         applicationName={getName()}
         applicationVersion={version}
         applicationArchitecture={process.arch}
-        onCheckForNonStaggeredUpdates={this.onCheckForNonStaggeredUpdates}
         onShowAcknowledgements={this.props.onShowAcknowledgements}
         onShowTermsAndConditions={this.props.onShowTermsAndConditions}
         updateState={this.state.updateState}
-        onQuitAndInstall={this.props.onDismissed}
+        onCheckForUpdates={this.onCheckForUpdates}
+        onInstallUpdate={this.onInstallUpdate}
+        onShowUpdateDetails={this.props.onDismissed}
         allowDevelopment={true}
       />
     )
   }
 
-  private setUpdateState(updateState: Partial<IUpdateState>) {
+  private setUpdateState(updateState: Partial<ICustomUpdateState>) {
     this.setState({
       updateState: {
         ...this.state.updateState,
         ...updateState,
       },
-    })
-  }
-
-  private onCheckForNonStaggeredUpdates = async () => {
-    this.setUpdateState({ status: UpdateStatus.CheckingForUpdates })
-    await this.delay(5000)
-    this.setUpdateState({ status: UpdateStatus.UpdateAvailable })
-    await this.delay(10000)
-
-    this.setUpdateState({
-      status: UpdateStatus.UpdateReady,
-      lastSuccessfulCheck: new Date(),
     })
   }
 

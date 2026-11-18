@@ -681,20 +681,6 @@ export class App extends React.Component<IAppProps, IAppState> {
     this.props.dispatcher.setCommitMessageFocus(true)
   }
 
-  private checkForUpdates(
-    inBackground: boolean,
-    skipGuidCheck: boolean = false
-  ) {
-    // The in-app auto-update system is disabled entirely for this custom
-    // build (both the periodic background check and the manual "Check for
-    // Updates" menu command funnel through this method). Updates are
-    // applied manually instead: rebuild and re-run the installer
-    // (`npm run build:prod && npm run package`), which is a normal Squirrel
-    // install/upgrade and doesn't go through this code path at all, so
-    // disabling this has no effect on that.
-    return
-  }
-
   private updateBranchWithContributionTargetBranch() {
     const { selectedState } = this.state
     if (
@@ -2078,11 +2064,12 @@ export class App extends React.Component<IAppProps, IAppState> {
             applicationName={getName()}
             applicationVersion={version}
             applicationArchitecture={process.arch}
-            onCheckForNonStaggeredUpdates={this.onCheckForNonStaggeredUpdates}
             onShowAcknowledgements={this.showAcknowledgements}
             onShowTermsAndConditions={this.showTermsAndConditions}
-            updateState={this.state.updateState}
-            onQuitAndInstall={this.onQuitAndInstall}
+            updateState={customUpdateStore.getState()}
+            onCheckForUpdates={this.onAboutCheckForUpdates}
+            onInstallUpdate={this.onCustomUpdateNow}
+            onShowUpdateDetails={this.onCustomUpdateDetails}
           />
         )
       case PopupType.PublishRepository:
@@ -3473,9 +3460,6 @@ export class App extends React.Component<IAppProps, IAppState> {
     this.props.dispatcher.openShell(path, true)
   }
 
-  private onCheckForNonStaggeredUpdates = () =>
-    this.checkForUpdates(false, true)
-
   private onSaveCopilotBYOKProvider = (
     provider: IBYOKProvider,
     secret: string | null | undefined
@@ -3498,8 +3482,6 @@ export class App extends React.Component<IAppProps, IAppState> {
   private showTermsAndConditions = () => {
     this.props.dispatcher.showPopup({ type: PopupType.TermsAndConditions })
   }
-
-  private onQuitAndInstall = () => updateStore.quitAndInstallUpdate()
 
   private renderPopups() {
     const popupContent = this.allPopupContent()
@@ -4268,6 +4250,10 @@ export class App extends React.Component<IAppProps, IAppState> {
       type: PopupType.CustomUpdate,
       installImmediately: true,
     })
+  }
+
+  private onAboutCheckForUpdates = () => {
+    customUpdateStore.check()
   }
 
   private onCustomUpdateDetails = () => {

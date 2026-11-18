@@ -10,13 +10,11 @@ import {
   DefaultDialogFooter,
 } from '../dialog'
 import { LinkButton } from '../lib/link-button'
-import { IUpdateState, UpdateStatus } from '../lib/update-store'
+import { ICustomUpdateState } from '../lib/custom-update-store'
 import { Loading } from '../lib/loading'
 import { RelativeTime } from '../relative-time'
-import { assertNever } from '../../lib/fatal-error'
 import { ReleaseNotesUri } from '../lib/releases'
 import { encodePathAsUrl } from '../../lib/path'
-import { isOSNoLongerSupportedByElectron } from '../../lib/get-os'
 import { AriaLiveContainer } from '../accessibility/aria-live-container'
 import { formatDate } from '../../lib/format-date'
 
@@ -47,16 +45,18 @@ interface IAboutProps {
    */
   readonly applicationArchitecture: string
 
-  /** A function to call to kick off a non-staggered update check. */
-  readonly onCheckForNonStaggeredUpdates: () => void
-
   readonly onShowAcknowledgements: () => void
 
   /** A function to call when the user wants to see Terms and Conditions. */
   readonly onShowTermsAndConditions: () => void
-  readonly onQuitAndInstall: () => void
 
-  readonly updateState: IUpdateState
+  /** This build's own update checker (GitHub releases of this project). */
+  readonly updateState: ICustomUpdateState
+  readonly onCheckForUpdates: () => void
+  /** Download and install the newer release. */
+  readonly onInstallUpdate: () => void
+  /** Show the newer release's notes and install options. */
+  readonly onShowUpdateDetails: () => void
 
   /**
    * A flag to indicate whether the About dialog should ignore that
@@ -104,52 +104,36 @@ export class About extends React.Component<IAboutProps> {
       return null
     }
 
-    const updateStatus = this.props.updateState.status
-
-    switch (updateStatus) {
-      case UpdateStatus.UpdateReady:
-        return (
-          <Row>
-            <Button onClick={this.props.onQuitAndInstall}>
-              Quit and Install Update
-            </Button>
-          </Row>
-        )
-      case UpdateStatus.UpdateNotAvailable:
-      case UpdateStatus.CheckingForUpdates:
-      case UpdateStatus.UpdateAvailable:
-      case UpdateStatus.UpdateNotChecked:
-        const disabled =
-          ![
-            UpdateStatus.UpdateNotChecked,
-            UpdateStatus.UpdateNotAvailable,
-          ].includes(updateStatus) || isOSNoLongerSupportedByElectron()
-
-        const buttonTitle = 'Check for Updates'
-
-        return (
-          <Row>
-            <Button
-              disabled={disabled}
-              onClick={this.props.onCheckForNonStaggeredUpdates}
-            >
-              {buttonTitle}
-            </Button>
-          </Row>
-        )
-      default:
-        return assertNever(
-          updateStatus,
-          `Unknown update status ${updateStatus}`
-        )
+    const { lastCheck, isChecking, isInstalling } = this.props.updateState
+    if (lastCheck?.isUpdateAvailable && lastCheck.latest !== null) {
+      return (
+        <Row className="update-buttons">
+          <Button
+            onClick={this.props.onInstallUpdate}
+            disabled={isInstalling}
+          >
+            {isInstalling ? 'Updating…' : 'Update now'}
+          </Button>
+          <Button onClick={this.props.onShowUpdateDetails}>
+            See what's new
+          </Button>
+        </Row>
+      )
     }
+
+    return (
+      <Row className="update-buttons">
+        <Button
+          disabled={isChecking || isInstalling}
+          onClick={this.props.onCheckForUpdates}
+        >
+          {__DARWIN__ ? 'Check for Updates' : 'Check for updates'}
+        </Button>
+      </Row>
+    )
   }
 
   private renderUpdateDetails() {
-    if (__LINUX__) {
-      return null
-    }
-
     if (!this.canCheckForUpdates) {
       return (
         <p>
@@ -159,78 +143,61 @@ export class About extends React.Component<IAboutProps> {
       )
     }
 
-    const { status, lastSuccessfulCheck } = this.props.updateState
+    const { lastCheck, lastCheckedAt, isChecking, isInstalling } =
+      this.props.updateState
 
-    switch (status) {
-      case UpdateStatus.CheckingForUpdates:
-        return <UpdateInfo message="Checking for updates…" loading={true} />
-      case UpdateStatus.UpdateAvailable:
-        return <UpdateInfo message="Downloading update…" loading={true} />
-      case UpdateStatus.UpdateNotAvailable:
-        if (!lastSuccessfulCheck) {
-          return null
-        }
-
-        const richMessage = (
-          <p>
-            You have the latest version (last checked{' '}
-            <RelativeTime date={lastSuccessfulCheck} />)
-          </p>
-        )
-
-        const absoluteDate = formatDate(lastSuccessfulCheck, {
-          dateStyle: 'full',
-          timeStyle: 'short',
-        })
-
-        return (
-          <UpdateInfo
-            message={`You have the latest version (last checked ${absoluteDate})`}
-            richMessage={richMessage}
-          />
-        )
-      case UpdateStatus.UpdateReady:
-        return (
-          <UpdateInfo message="An update has been downloaded and is ready to be installed." />
-        )
-      case UpdateStatus.UpdateNotChecked:
-        return null
-      default:
-        return assertNever(status, `Unknown update status ${status}`)
+    if (isInstalling) {
+      return <UpdateInfo message="Installing the update…" loading={true} />
     }
-  }
-
-  private renderUpdateErrors() {
-    if (__LINUX__) {
+    if (isChecking) {
+      return <UpdateInfo message="Checking for updates…" loading={true} />
+    }
+    if (lastCheck === null || lastCheckedAt === null || lastCheck.error) {
       return null
     }
 
+    if (lastCheck.isUpdateAvailable && lastCheck.latest !== null) {
+      const message = `Version ${lastCheck.latest.version} is available.`
+      return <UpdateInfo message={message} />
+    }
+
+    const absoluteDate = formatDate(lastCheckedAt, {
+      dateStyle: 'full',
+      timeStyle: 'short',
+    })
+    return (
+      <UpdateInfo
+        message={`You have the latest version (last checked ${absoluteDate})`}
+        richMessage={
+          <p>
+            You have the latest version (last checked{' '}
+            <RelativeTime date={lastCheckedAt} />)
+          </p>
+        }
+      />
+    )
+  }
+
+  private renderUpdateErrors() {
     if (!this.canCheckForUpdates) {
       return null
     }
 
-    if (isOSNoLongerSupportedByElectron()) {
+    const { lastCheck, isChecking, installError } = this.props.updateState
+    if (installError !== null) {
+      return (
+        <DialogError>Couldn't install the update: {installError}</DialogError>
+      )
+    }
+    if (!isChecking && lastCheck?.error) {
       return (
         <DialogError>
-          This operating system is no longer supported. Software updates have
-          been disabled.{' '}
-          <LinkButton uri="https://docs.github.com/en/desktop/installing-and-configuring-github-desktop/overview/supported-operating-systems">
-            Supported operating systems
-          </LinkButton>
+          Couldn't check for updates: {lastCheck.error}. You can also get new
+          versions from the{' '}
+          <LinkButton uri={CustomLinks.releases}>releases page</LinkButton>.
         </DialogError>
       )
     }
-
-    if (!this.props.updateState.lastSuccessfulCheck) {
-      return (
-        <DialogError>
-          Couldn't determine the last time an update check was performed. You
-          may be running an old version. Please try manually checking for
-          updates and contact GitHub Support if the problem persists
-        </DialogError>
-      )
-    }
-
     return null
   }
 

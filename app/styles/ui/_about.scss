@@ -43,6 +43,10 @@ dialog#about {
       margin-top: 0;
     }
 
+    .update-buttons {
+      gap: var(--spacing-half);
+    }
+
     .terms-and-license-container {
       margin-top: var(--spacing);
     }

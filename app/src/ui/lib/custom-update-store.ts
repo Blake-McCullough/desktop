@@ -19,6 +19,8 @@ const CheckIntervalMs = 4 * 60 * 60 * 1000
 
 export interface ICustomUpdateState {
   readonly lastCheck: ICustomUpdateCheckResult | null
+  /** When the last check finished (successfully or not). */
+  readonly lastCheckedAt: Date | null
   readonly isChecking: boolean
   readonly progress: CustomUpdateProgress | null
   readonly isInstalling: boolean
@@ -37,6 +39,7 @@ class CustomUpdateStore {
   private timer: number | null = null
   private state: ICustomUpdateState = {
     lastCheck: null,
+    lastCheckedAt: null,
     isChecking: false,
     progress: null,
     isInstalling: false,
@@ -107,11 +110,21 @@ class CustomUpdateStore {
     this.update({ isChecking: true })
     try {
       const lastCheck = await checkForCustomUpdate()
-      this.update({ lastCheck, isChecking: false })
+      this.update({ lastCheck, lastCheckedAt: new Date(), isChecking: false })
       return lastCheck
     } catch (e) {
       log.warn('[CustomUpdate] check failed', e)
-      this.update({ isChecking: false })
+      this.update({
+        isChecking: false,
+        lastCheckedAt: new Date(),
+        lastCheck: {
+          currentVersion: this.state.lastCheck?.currentVersion ?? '',
+          installKind: this.state.lastCheck?.installKind ?? 'manual',
+          latest: null,
+          isUpdateAvailable: false,
+          error: e instanceof Error ? e.message : `${e}`,
+        },
+      })
       return null
     }
   }
