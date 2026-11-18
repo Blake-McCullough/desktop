@@ -215,7 +215,7 @@ export function buildDefaultMenuTemplate({
         visible: enableWorktreeSupport(),
       },
       {
-        label: __DARWIN__ ? 'Show History Graph' : '&History graph',
+        label: __DARWIN__ ? 'Show History Graph' : 'Histor&y graph',
         id: 'show-commit-graph',
         accelerator: 'CmdOrCtrl+Alt+G',
         click: emit('show-commit-graph'),
