@@ -12,6 +12,9 @@ import { Advanced } from './advanced'
 import { DefaultTokenKey, GitLab } from './gitlab'
 import { gitLabPipelineStatusStore } from '../../lib/stores/gitlab-pipeline-status-store'
 import { TagColors } from './tag-colors'
+import { Shortcuts } from './shortcuts'
+import { ShortcutOverrides } from '../../models/shortcuts'
+import { getShortcutOverrides } from '../../lib/shortcut-settings'
 import {
   ITagColorRule,
   getTagColorRules,
@@ -234,6 +237,7 @@ interface IPreferencesState {
   readonly initialGitlabTokens?: ReadonlyMap<string, string>
   /** Tag color rules as edited. */
   readonly tagColorRules: ReadonlyArray<ITagColorRule>
+  readonly shortcutOverrides: ShortcutOverrides
   /** Self-hosted GitLab instance URLs as edited. */
   readonly gitlabInstanceUrls: ReadonlyArray<string>
 }
@@ -313,6 +317,7 @@ export class Preferences extends React.Component<
       gitlabTokens: undefined,
       initialGitlabTokens: undefined,
       tagColorRules: getTagColorRules(),
+      shortcutOverrides: getShortcutOverrides(),
       gitlabInstanceUrls: getGitLabInstanceUrls(),
     }
   }
@@ -527,6 +532,10 @@ export class Preferences extends React.Component<
               <Octicon className="icon" symbol={octicons.tag} />
               Tag colors
             </span>
+            <span id={this.getTabId(PreferencesTab.Shortcuts)}>
+              <Octicon className="icon" symbol={octicons.commandPalette} />
+              Shortcuts
+            </span>
           </TabBar>
 
           {this.renderActiveTab()}
@@ -571,6 +580,9 @@ export class Preferences extends React.Component<
         break
       case PreferencesTab.TagColors:
         suffix = 'tag-colors'
+        break
+      case PreferencesTab.Shortcuts:
+        suffix = 'shortcuts'
         break
       default:
         return assertNever(tab, `Unknown tab type: ${tab}`)
@@ -887,6 +899,14 @@ export class Preferences extends React.Component<
           />
         )
         break
+      case PreferencesTab.Shortcuts:
+        View = (
+          <Shortcuts
+            overrides={this.state.shortcutOverrides}
+            onOverridesChanged={this.onShortcutOverridesChanged}
+          />
+        )
+        break
       default:
         return assertNever(index, `Unknown tab index: ${index}`)
     }
@@ -928,6 +948,12 @@ export class Preferences extends React.Component<
 
   private onNotificationsEnabledChanged = (notificationsEnabled: boolean) => {
     this.setState({ notificationsEnabled })
+  }
+
+  private onShortcutOverridesChanged = (
+    shortcutOverrides: ShortcutOverrides
+  ) => {
+    this.setState({ shortcutOverrides })
   }
 
   private onPipelineNotificationsChanged = (
@@ -1343,6 +1369,13 @@ export class Preferences extends React.Component<
       if (this.state.preferAbsoluteDates !== undefined) {
         dispatcher.setPreferAbsoluteDates(this.state.preferAbsoluteDates)
       }
+    }
+
+    if (
+      JSON.stringify(this.state.shortcutOverrides) !==
+      JSON.stringify(getShortcutOverrides())
+    ) {
+      dispatcher.setShortcutOverrides(this.state.shortcutOverrides)
     }
 
     if (this.state.tagColorRules !== getTagColorRules()) {

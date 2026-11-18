@@ -20,6 +20,7 @@ export type MenuEvent =
   | 'stash-all-changes'
   | 'show-preferences'
   | 'choose-repository'
+  | 'show-quick-switcher'
   | 'open-working-directory'
   | 'update-branch-with-contribution-target-branch'
   | 'compare-to-branch'

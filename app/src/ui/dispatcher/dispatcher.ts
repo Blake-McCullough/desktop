@@ -1,3 +1,4 @@
+import { ShortcutOverrides } from '../../models/shortcuts'
 import { Disposable } from 'event-kit'
 import type {
   IRepositoryMovePlan,
@@ -3155,6 +3156,11 @@ export class Dispatcher {
 
   public setShowCommitLengthWarning(showCommitLengthWarning: boolean) {
     this.appStore._setShowCommitLengthWarning(showCommitLengthWarning)
+  }
+
+  /** Save changed menu shortcuts and apply them to the menu. */
+  public setShortcutOverrides(overrides: ShortcutOverrides) {
+    this.appStore._setShortcutOverrides(overrides)
   }
 
   public setNotificationsEnabled(notificationsEnabled: boolean) {

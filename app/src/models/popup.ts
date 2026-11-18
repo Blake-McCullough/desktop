@@ -135,6 +135,7 @@ export enum PopupType {
   CommitGraph = 'CommitGraph',
   CustomUpdate = 'CustomUpdate',
   MoveRepositories = 'MoveRepositories',
+  QuickSwitcher = 'QuickSwitcher',
   ExportRepositories = 'ExportRepositories',
 }
 
@@ -624,6 +625,9 @@ export type PopupDetail =
       initialSelection?: ReadonlyArray<number>
       /** Shown when the export finishes. */
       onExported: (message: string) => void
+    }
+  | {
+      type: PopupType.QuickSwitcher
     }
   | {
       type: PopupType.MoveRepositories

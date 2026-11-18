@@ -376,6 +376,11 @@ import {
 } from '../../models/uncommitted-changes-strategy'
 import { IStashEntry, StashedChangesLoadStates } from '../../models/stash-entry'
 import { MenuLabelsEvent } from '../../models/menu-labels'
+import { ShortcutOverrides } from '../../models/shortcuts'
+import {
+  getShortcutOverrides,
+  setShortcutOverrides,
+} from '../shortcut-settings'
 import { findRemoteBranchName } from './helpers/find-branch-name'
 import { updateRemoteUrl } from './updates/update-remote-url'
 import {
@@ -3186,6 +3191,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       selectedExternalEditor: useCustomEditor ? null : selectedExternalEditor,
       askForConfirmationOnRepositoryRemoval,
       askForConfirmationOnForcePush,
+      shortcuts: getShortcutOverrides(),
     }
 
     if (state === null) {
@@ -4669,6 +4675,12 @@ export class AppStore extends TypedBaseStore<IAppState> {
     setBoolean(showCommitLengthWarningKey, showCommitLengthWarning)
     this.showCommitLengthWarning = showCommitLengthWarning
     this.emitUpdate()
+  }
+
+  /** Save changed menu shortcuts and apply them to the menu. */
+  public _setShortcutOverrides(overrides: ShortcutOverrides) {
+    setShortcutOverrides(overrides)
+    this.updateMenuLabelsForSelectedRepository()
   }
 
   public _setNotificationsEnabled(notificationsEnabled: boolean) {

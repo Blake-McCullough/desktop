@@ -1,0 +1,179 @@
+// The quick switcher (View → Quick switcher).
+dialog#quick-switcher {
+  width: 560px;
+
+  .dialog-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing);
+  }
+
+  .quick-switcher-results {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 340px;
+    overflow-y: auto;
+    border: var(--base-border);
+    border-radius: var(--border-radius);
+  }
+
+  .quick-switcher-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-half);
+    padding: var(--spacing-half) var(--spacing);
+    cursor: pointer;
+    // A sidebar group's colour, as a stripe like in the sidebar.
+    border-left: 3px solid transparent;
+
+    &.has-color {
+      border-left-color: var(--group-color);
+    }
+
+    .icon {
+      flex-shrink: 0;
+      color: var(--text-secondary-color);
+    }
+
+    .title {
+      @include ellipsis;
+      min-width: 0;
+    }
+
+    .subtitle {
+      @include ellipsis;
+      color: var(--text-secondary-color);
+      font-size: var(--font-size-sm);
+      min-width: 0;
+    }
+
+    .kind {
+      margin-left: auto;
+      flex-shrink: 0;
+      color: var(--text-secondary-color);
+      font-size: var(--font-size-sm);
+    }
+
+    mark {
+      font-weight: var(--font-weight-semibold);
+      background: transparent;
+      color: inherit;
+    }
+
+    &.selected {
+      background: var(--box-selected-active-background-color);
+      color: var(--box-selected-active-text-color);
+
+      .icon,
+      .subtitle,
+      .kind {
+        color: var(--box-selected-active-text-color);
+      }
+    }
+  }
+
+  .quick-switcher-empty,
+  .quick-switcher-hint {
+    margin: 0;
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+  }
+}
+
+// Preferences → Shortcuts.
+#preferences .shortcuts-preferences {
+  // The full menu is long; scroll inside the tab so Save stays on screen.
+  max-height: min(65vh, 560px);
+  overflow-y: auto;
+
+  .shortcuts-toolbar {
+    display: flex;
+    gap: var(--spacing-half);
+    align-items: center;
+    margin-bottom: var(--spacing);
+
+    .text-box-component {
+      flex: 1;
+    }
+  }
+
+  .shortcuts-error {
+    color: var(--error-color);
+  }
+
+  .shortcuts-table {
+    width: 100%;
+    border-collapse: collapse;
+
+    th {
+      text-align: left;
+      font-weight: var(--font-weight-semibold);
+      padding: var(--spacing) 0 var(--spacing-third);
+      border-bottom: var(--base-border);
+    }
+
+    td {
+      padding: var(--spacing-third) 0;
+      vertical-align: middle;
+    }
+
+    tr.conflict .shortcut-label {
+      color: var(--error-color);
+    }
+  }
+
+  .shortcut-conflict {
+    font-size: var(--font-size-sm);
+  }
+
+  .shortcut-keys {
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  .shortcut-recorder {
+    min-width: 120px;
+    padding: var(--spacing-third) var(--spacing-half);
+    border: var(--base-border);
+    border-radius: var(--border-radius);
+    background: var(--box-alt-background-color);
+    color: var(--text-color);
+    font-family: var(--font-family-monospace);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+
+    &.empty {
+      color: var(--text-secondary-color);
+      font-family: inherit;
+    }
+
+    &.changed {
+      font-weight: var(--font-weight-semibold);
+    }
+
+    &.recording {
+      border-color: var(--focus-color);
+      color: var(--focus-color);
+      font-family: inherit;
+    }
+  }
+
+  // Only show "remove" on the row you're pointing at or working in.
+  .shortcut-action.clear {
+    visibility: hidden;
+  }
+
+  tr:hover,
+  tr:focus-within {
+    .shortcut-action.clear {
+      visibility: visible;
+    }
+  }
+
+  .shortcut-action {
+    margin-left: var(--spacing-third);
+    min-width: 0;
+    padding: 0 var(--spacing-half);
+  }
+}

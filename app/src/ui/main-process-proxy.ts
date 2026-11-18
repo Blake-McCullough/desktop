@@ -217,6 +217,13 @@ export const showSaveDialogForWindow = invokeProxy(
   'show-save-dialog-for-window',
   1
 )
+
+/** Pause menu shortcuts (while recording a new one) or resume them. */
+export const setIgnoreMenuShortcuts = sendProxy('set-ignore-menu-shortcuts', 1)
+
+/** The menu items whose shortcuts can be changed in Preferences. */
+export const getMenuShortcuts = invokeProxy('get-menu-shortcuts', 0)
+
 export const moveItemToTrash = invokeProxy('move-to-trash', 1)
 
 const writeClipboardTextProxy = invokeProxy('write-clipboard-text', 1)

@@ -19,7 +19,14 @@ import { AppWindow } from './app-window'
 import { checkForCustomUpdate, installCustomUpdate } from './custom-updater'
 import { showPipelineWindow } from './pipeline-window'
 import { parsePipelineWindowRequest } from '../lib/pipeline-window-shared'
-import { buildDefaultMenu, getAllMenuItems } from './menu'
+import {
+  buildDefaultMenu,
+  buildDefaultMenuTemplate,
+  getAllMenuItems,
+} from './menu'
+import { listMenuShortcuts } from './menu/menu-shortcuts'
+import { MenuLabelsEvent } from '../models/menu-labels'
+import { sanitizeShortcutOverrides } from '../models/shortcuts'
 import { shellNeedsPatching, updateEnvironmentForProcess } from '../lib/shell'
 import { parseAppURL } from '../lib/parse-app-url'
 import {
@@ -64,6 +71,14 @@ app.setAppLogsPath()
 enableSourceMaps()
 
 let mainWindow: AppWindow | null = null
+
+/** The menu settings the window sent last (labels, shortcuts). */
+let lastMenuLabels: MenuLabelsEvent = {
+  selectedShell: null,
+  selectedExternalEditor: null,
+  askForConfirmationOnRepositoryRemoval: false,
+  askForConfirmationOnForcePush: false,
+}
 
 const launchTime = now()
 
@@ -372,14 +387,7 @@ app.on('ready', () => {
     imageTokenResolver.resolveToken
   )
 
-  Menu.setApplicationMenu(
-    buildDefaultMenu({
-      selectedShell: null,
-      selectedExternalEditor: null,
-      askForConfirmationOnRepositoryRemoval: false,
-      askForConfirmationOnForcePush: false,
-    })
-  )
+  Menu.setApplicationMenu(buildDefaultMenu(lastMenuLabels))
 
   ipcMain.on('update-accounts', (event, accounts) => {
     if (event.sender !== mainWindow?.webContents) {
@@ -392,7 +400,12 @@ app.on('ready', () => {
     imageTokenResolver.acceptResponse(event.sender, requestId, token)
   })
 
-  ipcMain.on('update-preferred-app-menu-item-labels', (_, labels) => {
+  ipcMain.on('update-preferred-app-menu-item-labels', (_, unsafeLabels) => {
+    const labels: MenuLabelsEvent = {
+      ...unsafeLabels,
+      shortcuts: sanitizeShortcutOverrides(unsafeLabels.shortcuts),
+    }
+    lastMenuLabels = labels
     // The current application menu is mutable and we frequently
     // change whether particular items are enabled or not through
     // the update-menu-state IPC event. This menu that we're creating
@@ -443,7 +456,10 @@ app.on('ready', () => {
       if (!currentItem) {
         menuHasChanged = true
       } else {
-        if (currentItem.label !== newItem.label) {
+        if (
+          currentItem.label !== newItem.label ||
+          currentItem.accelerator !== newItem.accelerator
+        ) {
           menuHasChanged = true
         }
 
@@ -764,6 +780,20 @@ app.on('ready', () => {
         ? await dialog.showSaveDialog(options)
         : await dialog.showSaveDialog(window, options)
     return result.canceled || !result.filePath ? null : result.filePath
+  })
+
+  ipcMain.on('set-ignore-menu-shortcuts', (event, ignore) => {
+    if (event.sender === mainWindow?.webContents) {
+      event.sender.setIgnoreMenuShortcuts(ignore === true)
+    }
+  })
+
+  ipcMain.handle('get-menu-shortcuts', async () => {
+    const template = buildDefaultMenuTemplate({
+      ...lastMenuLabels,
+      shortcuts: {},
+    })
+    return listMenuShortcuts(template)
   })
 
   ipcMain.handle('custom-update-check', async () => checkForCustomUpdate())

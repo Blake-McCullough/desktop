@@ -148,6 +148,20 @@ listed — and a default token covers any server without one.
 
 <p align="center"><img src="docs/screenshots/clone-from-gitlab.png" alt="Cloning from GitLab: projects grouped by GitLab group and subgroup" width="480" /></p>
 
+### Quick switcher and shortcuts
+
+Press **Ctrl+K** (**⌘K** on macOS), or use **View → Quick switcher**, and
+type part of a name to jump to another repository or check out a branch of
+the current one. Repositories show their sidebar group and colour; recently
+used repositories and branches come first.
+
+Every menu shortcut, including the quick switcher's, can be changed in
+**Options → Shortcuts** (**Settings → Shortcuts** on macOS): click a
+shortcut, press the new keys, and save. Shortcuts used twice are flagged,
+and each can be removed or reset to its default.
+
+<p align="center"><img src="docs/screenshots/quick-switcher.png" alt="The quick switcher filtering repositories and branches by name" width="520" /></p>
+
 ### History graph
 
 **View → History graph** (`Ctrl+Alt+G`), or right-click a repository →

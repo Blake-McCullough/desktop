@@ -10,4 +10,5 @@ export enum PreferencesTab {
   Accessibility,
   GitLab,
   TagColors,
+  Shortcuts,
 }

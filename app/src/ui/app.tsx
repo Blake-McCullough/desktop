@@ -148,6 +148,8 @@ import { RepositoryGroupColorDialog } from './repositories-list/repository-group
 import { ImportRepositoriesDialog } from './repositories-list/import-repositories-dialog'
 import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
 import { MoveRepositoriesDialog } from './repositories-list/move-repositories-dialog'
+import { QuickSwitcher } from './quick-switcher/quick-switcher'
+import { getQuickSwitcherAccelerator } from '../lib/shortcut-settings'
 import { ExportRepositoriesDialog } from './repositories-list/export-repositories-dialog'
 import { GitLabPipelinePoller } from './repositories-list/gitlab-pipeline-poller'
 import {
@@ -479,6 +481,8 @@ export class App extends React.Component<IAppProps, IAppState> {
         return this.showHistory(true)
       case 'choose-repository':
         return this.chooseRepository()
+      case 'show-quick-switcher':
+        return this.showQuickSwitcher()
       case 'add-local-repository':
         return this.showAddLocalRepo()
       case 'create-branch':
@@ -949,6 +953,16 @@ export class App extends React.Component<IAppProps, IAppState> {
     if (shouldFocusChanges) {
       this.repositoryViewRef.current?.setFocusChangesNeeded()
     }
+  }
+
+  private showQuickSwitcher() {
+    if (this.state.currentPopup?.type === PopupType.QuickSwitcher) {
+      return this.props.dispatcher.closePopup(PopupType.QuickSwitcher)
+    }
+    if (this.state.currentFoldout !== null) {
+      this.props.dispatcher.closeCurrentFoldout()
+    }
+    return this.props.dispatcher.showPopup({ type: PopupType.QuickSwitcher })
   }
 
   private chooseRepository() {
@@ -2683,6 +2697,27 @@ export class App extends React.Component<IAppProps, IAppState> {
             repositories={popup.repositories}
             initialSelection={popup.initialSelection}
             onExported={popup.onExported}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
+      }
+      case PopupType.QuickSwitcher: {
+        const selected = this.state.selectedState
+        const repoState =
+          selected?.type === SelectionType.Repository ? selected : null
+        const branchesState = repoState?.state.branchesState
+        const tip = branchesState?.tip
+        return (
+          <QuickSwitcher
+            key="quick-switcher"
+            dispatcher={this.props.dispatcher}
+            repositories={this.state.repositories}
+            recentRepositories={this.state.recentRepositories}
+            repository={repoState?.repository ?? null}
+            branches={branchesState?.allBranches ?? []}
+            currentBranch={tip?.kind === TipState.Valid ? tip.branch : null}
+            recentBranches={branchesState?.recentBranches ?? []}
+            accelerator={getQuickSwitcherAccelerator()}
             onDismissed={onPopupDismissedFn}
           />
         )

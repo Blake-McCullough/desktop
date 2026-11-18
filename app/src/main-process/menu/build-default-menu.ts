@@ -1,6 +1,11 @@
 import { Menu, shell, app, BrowserWindow } from 'electron'
 import { CustomLinks } from '../../lib/custom-links'
 import { ensureItemIds } from './ensure-item-ids'
+import { applyShortcutOverrides } from './menu-shortcuts'
+import {
+  QuickSwitcherDefaultAccelerator,
+  QuickSwitcherMenuItemId,
+} from '../../models/shortcuts'
 import { MenuEvent } from './menu-event'
 import { truncateWithEllipsis } from '../../lib/truncate-with-ellipsis'
 import { getLogDirectoryPath } from '../../lib/logging/get-log-path'
@@ -55,6 +60,7 @@ export function buildDefaultMenuTemplate({
   isStashedChangesVisible = false,
   askForConfirmationWhenStashingAllChanges = true,
   isChangesFilterVisible = true,
+  shortcuts = {},
 }: MenuLabelsEvent): Electron.MenuItemConstructorOptions[] {
   contributionTargetDefaultBranch = truncateWithEllipsis(
     contributionTargetDefaultBranch,
@@ -200,6 +206,12 @@ export function buildDefaultMenuTemplate({
         id: 'show-repository-list',
         accelerator: 'CmdOrCtrl+T',
         click: emit('choose-repository'),
+      },
+      {
+        label: __DARWIN__ ? 'Quick Switcher…' : '&Quick switcher…',
+        id: QuickSwitcherMenuItemId,
+        accelerator: QuickSwitcherDefaultAccelerator,
+        click: emit('show-quick-switcher'),
       },
       {
         label: __DARWIN__ ? 'Show Branches List' : '&Branches list',
@@ -640,6 +652,7 @@ export function buildDefaultMenuTemplate({
   }
 
   ensureItemIds(template)
+  applyShortcutOverrides(template, shortcuts)
 
   return template
 }

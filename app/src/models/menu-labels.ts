@@ -1,4 +1,5 @@
 import { Shell } from '../lib/shells'
+import { ShortcutOverrides } from './shortcuts'
 
 export type MenuLabelsEvent = {
   /**
@@ -67,4 +68,10 @@ export type MenuLabelsEvent = {
    * says "Show changes filter" or "Hide changes filter".
    */
   readonly isChangesFilterVisible?: boolean
+
+  /**
+   * Keyboard shortcuts changed in Preferences → Shortcuts, keyed by menu
+   * item id. An empty string removes the item's shortcut.
+   */
+  readonly shortcuts?: ShortcutOverrides
 }

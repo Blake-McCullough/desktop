@@ -8,6 +8,7 @@ import { IMenuItemState } from './menu-update'
 import { MenuIDs } from '../models/menu-ids'
 import { ISerializableMenuItem } from './menu-item'
 import { MenuLabelsEvent } from '../models/menu-labels'
+import { IMenuShortcut } from '../models/shortcuts'
 import { MenuEvent } from '../main-process/menu'
 import { LogLevel } from './logging/log-level'
 import { ICrashDetails } from '../crash/shared'
@@ -35,6 +36,8 @@ export type RequestChannels = {
   /** Main → renderer: progress of downloading/installing a custom update. */
   'custom-update-progress': (progress: CustomUpdateProgress) => void
   /** Open (or focus) the window showing a GitLab pipeline. */
+  /** Pause menu shortcuts while Preferences records a new shortcut. */
+  'set-ignore-menu-shortcuts': (ignore: boolean) => void
   'show-pipeline-window': (request: IPipelineWindowRequest) => void
   /** Main → pipeline window: select a job (window was already open). */
   'pipeline-window-select-job': (jobId: number) => void
@@ -123,6 +126,8 @@ export type RequestResponseChannels = {
   'show-save-dialog-for-window': (
     options: Electron.SaveDialogOptions
   ) => Promise<string | null>
+  /** The menu items whose shortcuts can be changed, with their defaults. */
+  'get-menu-shortcuts': () => Promise<ReadonlyArray<IMenuShortcut>>
   /** Download and install a custom build release, then restart. */
   'custom-update-install': (
     release: ICustomRelease
