@@ -1,19 +1,21 @@
-# GitHub Desktop Custom
+# GitHub Desktop Custom GitLab CI
 
 A customised build of [GitHub Desktop](https://github.com/desktop/desktop)
 with repository groups, GitLab CI/CD pipeline status, a Fork-style history
 graph, and other workflow improvements. It installs as a separate app
-(**GitHub Desktop Custom**), so it can sit alongside the official GitHub
-Desktop.
+(**GitHub Desktop Custom GitLab CI**), so it can sit alongside the official
+GitHub Desktop. It's an unofficial fork and isn't made by GitHub.
+It was called **GitHub Desktop Custom** (repo `Blake-McCullough/desktop`)
+until November 2026; existing installs keep their data and update as normal.
 
-**[Download the latest release](https://github.com/Blake-McCullough/desktop/releases/latest)**
+**[Download the latest release](https://github.com/Blake-McCullough/github-desktop-custom-gitlab-ci/releases/latest)**
 
 | Platform | Download | Install |
 | --- | --- | --- |
 | Windows | `GitHubDesktopCustomSetup-x64.exe` | Run it. It isn't code-signed, so SmartScreen will warn you the first time: choose **More info → Run anyway**. |
-| Arch Linux, CachyOS, Manjaro, EndeavourOS | `github-desktop-custom-bin-….pkg.tar.zst` | `sudo pacman -U github-desktop-custom-bin-*.pkg.tar.zst` — then launch **GitHub Desktop Custom** from your app menu, or run `github-desktop-custom`. |
-| Other Linux | `GitHubDesktopCustom-…-x64.AppImage` | `chmod +x` it and run it. |
-| Other Linux (no AppImage) | `GitHubDesktopCustom-…-linux-x64.tar.gz` | Extract and run `github-desktop-custom/github-desktop-custom`. |
+| Arch Linux, CachyOS, Manjaro, EndeavourOS | `github-desktop-custom-bin-….pkg.tar.zst` | `sudo pacman -U github-desktop-custom-bin-*.pkg.tar.zst` — then launch **GitHub Desktop Custom GitLab CI** from your app menu, or run `github-desktop-custom`. |
+| Other Linux | `GitHubDesktopCustomGitLabCI-…-x64.AppImage` | `chmod +x` it and run it. |
+| Other Linux (no AppImage) | `GitHubDesktopCustomGitLabCI-…-linux-x64.tar.gz` | Extract and run `github-desktop-custom/github-desktop-custom`. |
 
 On Linux, sign-in and tokens are stored in your keyring, so `libsecret`
 (and a keyring such as GNOME Keyring or KWallet) needs to be available —
@@ -160,8 +162,8 @@ Requirements:
 - Visual Studio 2022 Build Tools with **Desktop development with C++**
 
 ```powershell
-git clone --recurse-submodules https://github.com/Blake-McCullough/desktop.git
-cd desktop
+git clone --recurse-submodules https://github.com/Blake-McCullough/github-desktop-custom-gitlab-ci.git
+cd github-desktop-custom-gitlab-ci
 npm ci
 npm run build:prod
 npm run package
@@ -180,8 +182,8 @@ npm 11.17+, Python 3, a C/C++ toolchain, and `libsecret` headers — on Arch /
 CachyOS: `sudo pacman -S --needed base-devel python libsecret`.
 
 ```sh
-git clone --recurse-submodules https://github.com/Blake-McCullough/desktop.git
-cd desktop
+git clone --recurse-submodules https://github.com/Blake-McCullough/github-desktop-custom-gitlab-ci.git
+cd github-desktop-custom-gitlab-ci
 npm ci
 npm run build:prod
 npm run package
@@ -191,7 +193,7 @@ This writes to `dist/`:
 
 - `github-desktop-custom-linux-x64/github-desktop-custom` — the app, ready to
   run;
-- `GitHubDesktopCustom-<version>-linux-x64.tar.gz` and a `PKGBUILD` next to
+- `GitHubDesktopCustomGitLabCI-<version>-linux-x64.tar.gz` and a `PKGBUILD` next to
   it — on Arch-based systems, `cd dist && makepkg -si` builds and installs a
   pacman package from them;
 - an AppImage, if `APPIMAGETOOL` points at

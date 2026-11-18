@@ -5,7 +5,8 @@ import { ReleaseNotesUri } from '../../src/ui/lib/releases'
 
 describe('CustomLinks', () => {
   it("points the app's project links at this fork", () => {
-    const repo = 'https://github.com/Blake-McCullough/desktop'
+    const repo =
+      'https://github.com/Blake-McCullough/github-desktop-custom-gitlab-ci'
     assert.equal(ReleaseNotesUri, `${repo}/releases`)
     assert.equal(CustomLinks.newIssue, `${repo}/issues/new`)
     assert.equal(

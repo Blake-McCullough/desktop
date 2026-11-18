@@ -220,7 +220,7 @@ export class CustomUpdateDialog extends React.Component<
       >
         <DialogContent>
           <p className="current-version">
-            GitHub Desktop Custom{' '}
+            GitHub Desktop Custom GitLab CI{' '}
             <strong>{lastCheck?.currentVersion ?? '…'}</strong>
             {lastCheck !== null && (
               <span className="muted">

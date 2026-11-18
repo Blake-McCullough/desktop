@@ -56,7 +56,8 @@ if (process.platform === 'darwin') {
       'linux',
       'icon-logo.png'
     ),
-    homepage: 'https://github.com/Blake-McCullough/desktop',
+    homepage:
+      'https://github.com/Blake-McCullough/github-desktop-custom-gitlab-ci',
   })
 } else {
   console.error(`I don't know how to package for ${process.platform} :(`)

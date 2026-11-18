@@ -44,7 +44,7 @@ function desktopEntry(productName: string, exec: string) {
   return [
     '[Desktop Entry]',
     `Name=${productName}`,
-    'Comment=GitHub Desktop with repository groups, GitLab CI/CD pipelines and a history graph',
+    'Comment=GitHub Desktop with GitLab CI/CD pipelines, repository groups and a history graph',
     `Exec=${exec} %U`,
     `Icon=${LinuxAppId}`,
     'Type=Application',
@@ -73,7 +73,7 @@ function pkgbuild(
 pkgname=${LinuxAppId}-bin
 pkgver=${toPacmanVersion(options.version)}
 pkgrel=1
-pkgdesc="GitHub Desktop with repository groups, GitLab CI/CD pipelines and a history graph"
+pkgdesc="GitHub Desktop Custom GitLab CI: GitHub Desktop with GitLab CI/CD pipelines, repository groups and a history graph"
 arch=('x86_64')
 url="${options.homepage}"
 license=('MIT')

@@ -1,3 +1,5 @@
+// Must come first: it decides where settings and logs are stored.
+import './pin-user-data'
 import '../lib/logging/main/install'
 
 import {
