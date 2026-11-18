@@ -1,5 +1,5 @@
 import * as Path from 'path'
-import { cp, lstat, mkdir, rename, rm } from 'fs/promises'
+import { cp, lstat, mkdir, rename, rm, rmdir } from 'fs/promises'
 import { getCommonRoot, mapImportPath } from './repository-import-export'
 
 /** A repository to move: just what planning needs. */
@@ -331,4 +331,21 @@ export interface IRepositoryMoveResult<
    * fully deleted.
    */
   readonly leftOriginalBehind: boolean
+}
+
+/**
+ * After moving `from` away, remove the folders it leaves empty, walking up
+ * towards `stopAt`. Only empty folders are removed (rmdir refuses anything
+ * else), and `stopAt` itself is always kept.
+ */
+export async function removeEmptyParents(from: string, stopAt: string) {
+  let dir = Path.dirname(Path.resolve(from))
+  while (isPathInside(dir, stopAt)) {
+    try {
+      await rmdir(dir)
+    } catch {
+      return
+    }
+    dir = Path.dirname(dir)
+  }
 }

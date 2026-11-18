@@ -154,7 +154,10 @@ export class MoveRepositoriesDialog extends React.Component<
     try {
       const results = await this.props.dispatcher.moveRepositories(
         plans.filter(p => p.action === 'move' || p.action === 'carried'),
-        current => this.mounted && this.setState({ current })
+        current => this.mounted && this.setState({ current }),
+        // Moving several: tidy up the empty folders they leave behind. A
+        // single repository's parent folder is left alone.
+        this.isSingle ? null : this.oldRoot
       )
       if (!this.mounted) {
         return

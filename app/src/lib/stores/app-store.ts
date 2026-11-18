@@ -5,6 +5,7 @@ import {
   isSamePath,
   movedPath,
   moveFolder,
+  removeEmptyParents,
 } from '../move-repository'
 import {
   AssistedCommitPushOutcome as PushBranchOutcome,
@@ -9973,7 +9974,12 @@ export class AppStore extends TypedBaseStore<IAppState> {
    */
   public async _moveRepositories(
     plans: ReadonlyArray<IRepositoryMovePlan<Repository>>,
-    onProgress?: (repository: Repository) => void
+    onProgress?: (repository: Repository) => void,
+    /**
+     * The folder the repositories were moved out of: folders left empty
+     * below it are removed (it's kept).
+     */
+    cleanupRoot?: string | null
   ): Promise<ReadonlyArray<IRepositoryMoveResult<Repository>>> {
     const results = new Map<number, IRepositoryMoveResult<Repository>>()
     const moved: Array<{ from: string; to: string }> = []
@@ -10089,6 +10095,12 @@ export class AppStore extends TypedBaseStore<IAppState> {
             log.warn(`Could not refresh ${repository.path} after a move`, e)
           )
         }
+      }
+    }
+
+    if (cleanupRoot) {
+      for (const { from } of moved) {
+        await removeEmptyParents(from, cleanupRoot)
       }
     }
 
