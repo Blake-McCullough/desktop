@@ -7,11 +7,14 @@ import { normalizeInstanceUrl } from './gitlab-api'
 const GitLabTokenStoreKey = 'GitHub Desktop - GitLab'
 
 /**
- * The "account" for the default token, used for any GitLab instance that
- * doesn't have a token of its own. (Before per-instance tokens existed this
- * was the only token, so existing setups keep working unchanged.)
+ * Earlier versions had a single "default" token used for every server. It's
+ * no longer offered: each server has its own token. A token saved that way
+ * is copied to a server the first time that server needs one (once per
+ * server, so clearing a server's token later doesn't bring it back), and
+ * removed for good when you save Preferences → GitLab.
  */
-const DefaultTokenLogin = 'gitlab-token'
+const LegacyDefaultTokenLogin = 'gitlab-token'
+const LegacyMigratedLoginsKey = 'gitlab/default-token-migrated-to'
 
 /** The "account" for an instance's own token. */
 const instanceLogin = (instanceUrl: string) => `instance:${instanceUrl}`
@@ -30,10 +33,7 @@ const emitter = new Emitter()
  */
 const cache = new Map<string, Promise<string | null>>()
 
-function keyFor(instanceUrl: string | null): string | null {
-  if (instanceUrl === null) {
-    return DefaultTokenLogin
-  }
+function keyFor(instanceUrl: string): string | null {
   const normalized = normalizeInstanceUrl(instanceUrl)
   return normalized === null ? null : instanceLogin(normalized)
 }
@@ -51,37 +51,51 @@ function readToken(login: string): Promise<string | null> {
   return cached
 }
 
+function getMigratedLogins(): Set<string> {
+  const stored = getObject<ReadonlyArray<string>>(LegacyMigratedLoginsKey)
+  return new Set(Array.isArray(stored) ? stored : [])
+}
+
+/** Give a server the old default token, if there is one and it hasn't yet. */
+async function adoptLegacyDefaultToken(login: string): Promise<string | null> {
+  const migrated = getMigratedLogins()
+  if (migrated.has(login)) {
+    return null
+  }
+  const legacy = await readToken(LegacyDefaultTokenLogin)
+  if (legacy === null) {
+    return null
+  }
+  migrated.add(login)
+  setObject(LegacyMigratedLoginsKey, [...migrated])
+  try {
+    await TokenStore.setItem(GitLabTokenStoreKey, login, legacy)
+  } catch (e) {
+    log.error('Failed to copy the default GitLab token to a server', e)
+  }
+  cache.set(login, Promise.resolve(legacy))
+  return legacy
+}
+
 /**
- * The token to use for an instance: its own token if it has one, otherwise
- * the default token. With no instance, the default token.
- *
- * Returns `null` if neither is set.
+ * The token for a GitLab server (its base URL), or `null` if it has none.
  */
 export async function getGitLabToken(
-  instanceUrl: string | null = null
-): Promise<string | null> {
-  const own = await getGitLabInstanceToken(instanceUrl)
-  return own ?? (instanceUrl === null ? null : readToken(DefaultTokenLogin))
-}
-
-/**
- * Only the token stored for exactly this instance (or the default token, for
- * `null`), without falling back. For the Preferences UI.
- */
-export function getGitLabInstanceToken(
-  instanceUrl: string | null
+  instanceUrl: string
 ): Promise<string | null> {
   const login = keyFor(instanceUrl)
-  return login === null ? Promise.resolve(null) : readToken(login)
+  if (login === null) {
+    return null
+  }
+  return (await readToken(login)) ?? adoptLegacyDefaultToken(login)
 }
 
 /**
- * Set (or clear, with `null` or an empty string) the token for an instance,
- * or the default token when `instanceUrl` is `null`.
+ * Set (or clear, with `null` or an empty string) a server's token.
  */
 export async function setGitLabToken(
   token: string | null,
-  instanceUrl: string | null = null
+  instanceUrl: string
 ): Promise<void> {
   const login = keyFor(instanceUrl)
   if (login === null) {
@@ -100,15 +114,16 @@ export async function setGitLabToken(
   emitter.emit('did-change', null)
 }
 
-/** Whether any token (default or per instance) is configured. */
-export async function hasAnyGitLabToken(): Promise<boolean> {
-  const instances = [null, GitLabDotComInstance, ...getGitLabInstanceUrls()]
-  for (const instance of instances) {
-    if ((await getGitLabInstanceToken(instance)) !== null) {
-      return true
-    }
+/**
+ * Delete the old default token (see `LegacyDefaultTokenLogin`) once the
+ * servers you can see in Preferences have taken it over.
+ */
+export async function forgetLegacyDefaultGitLabToken(): Promise<void> {
+  if ((await readToken(LegacyDefaultTokenLogin)) === null) {
+    return
   }
-  return false
+  await TokenStore.deleteItem(GitLabTokenStoreKey, LegacyDefaultTokenLogin)
+  cache.set(LegacyDefaultTokenLogin, Promise.resolve(null))
 }
 
 /**

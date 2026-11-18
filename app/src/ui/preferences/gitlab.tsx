@@ -12,13 +12,10 @@ import {
 } from '../../lib/gitlab/gitlab-api'
 import { GitLabDotComInstance } from '../../lib/gitlab/gitlab-token'
 
-/** The key for the default token in `tokens`. */
-export const DefaultTokenKey = ''
-
 interface IGitLabProps {
   /**
-   * Tokens as currently edited, keyed by instance URL (`DefaultTokenKey` for
-   * the default token). `undefined` while the stored values load.
+   * Tokens as currently edited, keyed by server URL. `undefined` while the
+   * stored values load.
    */
   readonly tokens: ReadonlyMap<string, string> | undefined
   readonly onTokenChanged: (key: string, token: string) => void
@@ -164,22 +161,14 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
     return (this.props.tokens?.get(key) ?? '').trim()
   }
 
-  /**
-   * Test a token. An instance's own token is tested against it; the default
-   * token against every instance that would use it.
-   */
+  /** Test a server's token against that server. */
   private async test(key: string) {
     const token = this.token(key)
     if (token.length === 0) {
       return
     }
 
-    const targets =
-      key === DefaultTokenKey
-        ? this.getInstances()
-            .map(i => i.url)
-            .filter(url => this.token(url).length === 0)
-        : [key]
+    const targets = [key]
 
     this.setState(prev => ({ testing: new Set(prev.testing).add(key) }))
 
@@ -209,9 +198,6 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
             : e.message
         lines.push(`✗ ${hostLabel(target)}: ${reason}`)
       }
-    }
-    if (targets.length === 0) {
-      lines.push('Every server has its own token, so the default is unused.')
     }
 
     this.setState(prev => {
@@ -272,7 +258,6 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
 
   public render() {
     const isLoading = this.props.tokens === undefined
-    const hasDefault = this.token(DefaultTokenKey).length > 0
 
     return (
       <DialogContent>
@@ -280,20 +265,12 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
           <h2>Servers and tokens</h2>
           <div className="settings-description">
             <p>
-              Each GitLab server can have its own personal access token. Use the{' '}
+              Each GitLab server has its own personal access token. Use the{' '}
               <code>read_api</code> scope to view pipelines, or <code>api</code>{' '}
               to also run, retry and cancel jobs. Tokens are stored in your
               system's credential manager.
             </p>
           </div>
-
-          {this.renderTokenRow(
-            DefaultTokenKey,
-            'Default token',
-            'Used for any server below that has no token of its own.',
-            isLoading,
-            null
-          )}
 
           {this.getInstances().map(({ url, kind }) =>
             this.renderTokenRow(
@@ -305,8 +282,7 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
                 ? null
                 : 'Self-hosted.',
               isLoading,
-              kind === 'configured' ? url : null,
-              hasDefault ? 'Uses the default token' : 'glpat-…'
+              kind === 'configured' ? url : null
             )
           )}
 
@@ -374,15 +350,14 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
     title: string,
     note: string | null,
     isLoading: boolean,
-    removableUrl: string | null,
-    placeholder = 'glpat-…'
+    removableUrl: string | null
   ) {
     const token = this.props.tokens?.get(key) ?? ''
     const testing = this.state.testing.has(key)
     const result = this.state.testResults.get(key)
 
     return (
-      <div className="gitlab-token-row" key={key || 'default'}>
+      <div className="gitlab-token-row" key={key}>
         <div className="gitlab-token-title">
           <strong>{title}</strong>
           {note !== null && <span className="gitlab-token-note">{note}</span>}
@@ -393,7 +368,7 @@ export class GitLab extends React.Component<IGitLabProps, IGitLabState> {
             type="password"
             value={token}
             onValueChanged={this.getTokenHandler(key)}
-            placeholder={isLoading ? 'Loading…' : placeholder}
+            placeholder={isLoading ? 'Loading…' : 'glpat-…'}
             disabled={isLoading}
           />
           <Button

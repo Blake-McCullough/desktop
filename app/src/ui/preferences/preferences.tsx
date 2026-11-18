@@ -9,7 +9,7 @@ import { Dispatcher } from '../dispatcher'
 import { TabBar, TabBarType } from '../tab-bar'
 import { Accounts } from './accounts'
 import { Advanced } from './advanced'
-import { DefaultTokenKey, GitLab } from './gitlab'
+import { GitLab } from './gitlab'
 import { gitLabPipelineStatusStore } from '../../lib/stores/gitlab-pipeline-status-store'
 import { TagColors } from './tag-colors'
 import {
@@ -63,7 +63,8 @@ import { Notifications } from './notifications'
 import { Accessibility } from './accessibility'
 import {
   GitLabDotComInstance,
-  getGitLabInstanceToken,
+  getGitLabToken,
+  forgetLegacyDefaultGitLabToken,
   setGitLabToken,
   getGitLabInstanceUrls,
   setGitLabInstanceUrls,
@@ -411,16 +412,14 @@ export class Preferences extends React.Component<
 
   private async loadGitLabToken() {
     const keys = new Set<string>([
-      DefaultTokenKey,
       GitLabDotComInstance,
       ...getGitLabInstanceUrls(),
       ...gitLabPipelineStatusStore.getKnownInstances(),
     ])
     const tokens = new Map<string, string>()
     for (const key of keys) {
-      const token = await getGitLabInstanceToken(
-        key === DefaultTokenKey ? null : key
-      )
+      // Picks up the old default token for servers that haven't yet.
+      const token = await getGitLabToken(key)
       tokens.set(key, token ?? '')
     }
     this.setState({ gitlabTokens: tokens, initialGitlabTokens: tokens })
@@ -1412,7 +1411,7 @@ export class Preferences extends React.Component<
           continue
         }
         try {
-          await setGitLabToken(token, key === DefaultTokenKey ? null : key)
+          await setGitLabToken(token, key)
         } catch (e) {
           log.error('Failed to save GitLab token', e)
           this.props.dispatcher.postError(
@@ -1420,6 +1419,14 @@ export class Preferences extends React.Component<
           )
         }
       }
+    }
+
+    // Every server listed in the GitLab tab has now taken over the old
+    // default token (if there was one), so it can go.
+    if (tokens !== undefined) {
+      await forgetLegacyDefaultGitLabToken().catch(e =>
+        log.error('Failed to remove the old default GitLab token', e)
+      )
     }
 
     this.props.onDismissed()

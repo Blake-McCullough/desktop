@@ -824,6 +824,12 @@
 
       .text-box-component {
         flex-grow: 1;
+        min-width: 0;
+      }
+
+      // Keep Test / Clear / Remove readable; the token box gives way.
+      .button-component {
+        flex-shrink: 0;
       }
     }
   }

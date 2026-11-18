@@ -108,9 +108,9 @@ already exists at the destination.
 ### GitLab CI/CD pipelines
 
 Set personal access tokens in **Preferences → GitLab** (`read_api` to view,
-`api` to also run manual jobs). Each GitLab server can have its own token —
+`api` to also run manual jobs). Each GitLab server has its own token:
 gitlab.com, your self-hosted servers, and any found in your repositories are
-listed — and a default token covers any server without one.
+listed.
 
 - **Sidebar**: a dot per job for the latest commit you've pushed on the
   current branch; running jobs pulse, and clicking a dot opens that job in
