@@ -18,6 +18,7 @@ import {
   moveFolder,
   pathIsTaken,
   planRepositoryMoves,
+  removeEmptyParents,
 } from '../../src/lib/move-repository'
 
 const repo = (id: number, path: string): IMovableRepository => ({
@@ -167,5 +168,34 @@ describe('moveFolder', () => {
     assert.equal(result.leftOriginalBehind, false)
     assert.equal(await pathIsTaken(from), false)
     assert.equal(await readFile(Path.join(to, 'sub', 'f'), 'utf8'), 'data')
+  })
+
+  it('removes folders left empty, but not the root or non-empty ones', async () => {
+    const base = await mkdtemp(Path.join(tmpdir(), 'move-folder-'))
+    const root = Path.join(base, 'code')
+    await mkdir(Path.join(root, 'acme', 'platform', 'api'), { recursive: true })
+    await mkdir(Path.join(root, 'acme', 'web'), { recursive: true })
+    await writeFile(Path.join(root, 'acme', 'web', 'keep.txt'), 'x')
+    await mkdir(Path.join(root, 'solo', 'repo'), { recursive: true })
+
+    await moveFolder(
+      Path.join(root, 'acme', 'platform', 'api'),
+      Path.join(base, 'new', 'api')
+    )
+    await removeEmptyParents(Path.join(root, 'acme', 'platform', 'api'), root)
+    await moveFolder(
+      Path.join(root, 'solo', 'repo'),
+      Path.join(base, 'new', 'repo')
+    )
+    await removeEmptyParents(Path.join(root, 'solo', 'repo'), root)
+
+    assert.equal(await pathIsTaken(Path.join(root, 'acme', 'platform')), false)
+    assert.equal(await pathIsTaken(Path.join(root, 'solo')), false)
+    // Still has a file, so it and its parent stay.
+    assert.equal(
+      await pathIsTaken(Path.join(root, 'acme', 'web', 'keep.txt')),
+      true
+    )
+    assert.equal(await pathIsTaken(root), true)
   })
 })

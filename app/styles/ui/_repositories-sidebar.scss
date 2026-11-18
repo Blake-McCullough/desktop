@@ -408,7 +408,6 @@
       color: var(--status-error-color);
     }
   }
-
 }
 
 // GitLab job dots and Run buttons: in the sidebar and in the toolbar's
@@ -440,7 +439,7 @@
   }
 
   .repositories-sidebar-item.selected .gitlab-pipeline-awaiting,
-  .list-item.selected .gitlab-pipeline-awaiting {
+  .focus-within .list-item.selected .gitlab-pipeline-awaiting {
     border-color: var(--box-selected-active-text-color);
   }
 
@@ -558,7 +557,7 @@
   // On the selected (accent-colored) row, use translucent white so the
   // button stays legible.
   .repositories-sidebar-item.selected .gitlab-job-run-button,
-  .list-item.selected .gitlab-job-run-button {
+  .focus-within .list-item.selected .gitlab-job-run-button {
     border-color: rgba(255, 255, 255, 0.85);
     color: var(--box-selected-active-text-color);
 
@@ -1813,8 +1812,7 @@ dialog#commit-graph {
 
     &.colored {
       border-left: 3px solid var(--group-color);
-      background: linear-gradient(var(--group-tint), var(--group-tint)),
-        var(--background-color);
+      background: linear-gradient(var(--group-tint), var(--group-tint)), var(--background-color);
       color: var(--group-color);
     }
   }

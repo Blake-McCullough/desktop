@@ -8,6 +8,13 @@ GitHub Desktop. It's an unofficial fork and isn't made by GitHub.
 It was called **GitHub Desktop Custom** (repo `Blake-McCullough/desktop`)
 until November 2026; existing installs keep their data and update as normal.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/main-window-dark.png" />
+  <img src="docs/screenshots/main-window.png" alt="Repository groups with colours, GitLab pipeline dots and Run buttons in the sidebar, and pipeline status and coloured tags for every commit in History" />
+</picture>
+
+<sub>Screenshots use made-up demo repositories and a test GitLab server.</sub>
+
 **[Download the latest release](https://github.com/Blake-McCullough/github-desktop-custom-gitlab-ci/releases/latest)**
 
 | Platform | Download | Install |
@@ -67,6 +74,8 @@ From the sidebar's **+** menu:
   it is kept — and the import adds repositories already on disk, clones the
   missing ones, and recreates your groups.
 
+<p align="center"><img src="docs/screenshots/export-repositories.png" alt="Export dialog: choose repositories by group and which fields to include" width="560" /></p>
+
 ### Repository list and sidebar
 
 The **Current repository** list in the toolbar follows your sidebar groups:
@@ -74,6 +83,8 @@ the same groups, colors and GitLab pipeline dots (with Run buttons), and its
 right-click menu can move a repository to a group. If you prefer the toolbar
 list on its own, turn off **Show repositories sidebar** in
 **Options → Appearance** (it's on by default).
+
+<p align="center"><img src="docs/screenshots/repository-list.png" alt="The Current repository list, grouped and coloured like the sidebar, with pipeline dots" width="640" /></p>
 
 ### Moving repository folders
 
@@ -91,6 +102,8 @@ settings are updated, linked worktrees are repaired, and repositories nested
 inside a moved folder come along. Moving to another drive copies and then
 deletes the original. Nothing is overwritten: a move is refused if something
 already exists at the destination.
+
+<p align="center"><img src="docs/screenshots/move-repositories.png" alt="Moving a group of repositories, previewing where each one goes" width="520" /></p>
 
 ### GitLab CI/CD pipelines
 
@@ -118,6 +131,8 @@ Set a personal access token in **Preferences → GitLab** (`read_api` to view,
   sidebar says when they'll resume.
 - **Test token** in Preferences shows which user and scopes the token has.
 
+<p align="center"><img src="docs/screenshots/clone-from-gitlab.png" alt="Cloning from GitLab: projects grouped by GitLab group and subgroup" width="480" /></p>
+
 ### History graph
 
 **View → History graph** (`Ctrl+Alt+G`), or right-click a repository →
@@ -132,17 +147,23 @@ Set a personal access token in **Preferences → GitLab** (`read_api` to view,
 - Search by message, author, SHA, branch or tag; keyboard navigation.
 - Select a commit to see its full message and changed files.
 
+<p align="center"><img src="docs/screenshots/history-graph.png" alt="History graph with branches, merges, coloured tags and commit details" /></p>
+
 ### Tag colours
 
 **Preferences → Tag colors** maps regular expressions to colours, e.g.
 `^Pushed_To_Test` → green. Matching tags are highlighted in History and the
 history graph.
 
+<p align="center"><img src="docs/screenshots/tag-colors.png" alt="Tag colour rules with a live preview" width="560" /></p>
+
 ### Worktrees
 
 Right-click a repository → **View worktrees…** to see every worktree with
 its branch, latest commit, uncommitted changes and ahead/behind state, and
 to switch to, open, or remove them.
+
+<p align="center"><img src="docs/screenshots/worktrees.png" alt="Worktree viewer showing each worktree, its branch and status" width="620" /></p>
 
 ### Reliability
 

@@ -2018,9 +2018,10 @@ export class Dispatcher {
   /** Move repositories' folders on disk; see `AppStore._moveRepositories`. */
   public moveRepositories(
     plans: ReadonlyArray<IRepositoryMovePlan<Repository>>,
-    onProgress?: (repository: Repository) => void
+    onProgress?: (repository: Repository) => void,
+    cleanupRoot?: string | null
   ): Promise<ReadonlyArray<IRepositoryMoveResult<Repository>>> {
-    return this.appStore._moveRepositories(plans, onProgress)
+    return this.appStore._moveRepositories(plans, onProgress, cleanupRoot)
   }
 
   public relocateRepository(repository: Repository): Promise<void> {
