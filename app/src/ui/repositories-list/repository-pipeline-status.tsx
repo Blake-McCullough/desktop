@@ -14,7 +14,10 @@ import {
   formatStatus,
   getJobStatusColor,
 } from '../../lib/gitlab/gitlab-api'
-import { IRepositoryPipelineState } from '../../lib/stores/gitlab-pipeline-status-store'
+import {
+  IRepositoryPipelineState,
+  gitLabPipelineStatusStore,
+} from '../../lib/stores/gitlab-pipeline-status-store'
 
 /** How many job dots to show before collapsing the rest into "+N". */
 const MaxVisibleJobs = 8
@@ -46,14 +49,38 @@ export class RepositoryPipelineStatus extends React.PureComponent<IRepositoryPip
 
     if (job.status === 'manual') {
       this.props.onPlayJob(this.props.repository, job)
-    } else if (job.webUrl !== undefined) {
-      this.props.onOpenUrl(job.webUrl)
+    } else {
+      this.openDetails(event, job.id, job.webUrl)
     }
   }
 
   private onMoreClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
-    const url = this.props.pipeline?.pipeline?.webUrl
+    this.openDetails(event, null, this.props.pipeline?.pipeline?.webUrl)
+  }
+
+  /**
+   * Open the pipeline window, or GitLab in the browser with Ctrl/Cmd held
+   * (or when there's no pipeline to show, only commit statuses).
+   */
+  private async openDetails(
+    event: React.MouseEvent,
+    jobId: number | null,
+    url: string | undefined
+  ) {
+    const pipeline = this.props.pipeline?.pipeline
+    const toBrowser = event.ctrlKey || event.metaKey
+    if (
+      !toBrowser &&
+      pipeline != null &&
+      (await gitLabPipelineStatusStore.openPipelineWindow(
+        this.props.repository,
+        pipeline,
+        jobId
+      ))
+    ) {
+      return
+    }
     if (url !== undefined) {
       this.props.onOpenUrl(url)
     }
@@ -190,7 +217,7 @@ export class RepositoryPipelineStatus extends React.PureComponent<IRepositoryPip
           { running: job.status === 'running' }
         )}
         onClick={this.onJobClick}
-        title={job.webUrl !== undefined ? `${label} — open in GitLab` : label}
+        title={`${label} — click for details, Ctrl+click to open in GitLab`}
         aria-label={label}
       />
     )

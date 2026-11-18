@@ -10,6 +10,9 @@ import { IGitLabJobStatus } from '../../../src/lib/gitlab/gitlab-api'
 
 const repository = new Repository('/tmp/my-app', 7, null, false)
 
+/** Clicks open the pipeline window first, falling back to GitLab. */
+const settle = () => new Promise(resolve => setImmediate(resolve))
+
 function pipelineWith(
   jobs: ReadonlyArray<IGitLabJobStatus>
 ): IRepositoryPipelineState {
@@ -66,7 +69,7 @@ describe('RepositoriesSidebarRow', () => {
     assert.deepEqual(clicked, [repository])
   })
 
-  it('shows a dot per job and opens the job when clicked', () => {
+  it('opens GitLab for a job when there is no pipeline window to show', async () => {
     const opened: Array<string> = []
     renderRow(
       pipelineWith([
@@ -91,6 +94,30 @@ describe('RepositoriesSidebarRow', () => {
     )
 
     fireEvent.click(build)
+    await settle()
+    assert.deepEqual(opened, ['https://gitlab.com/job/1'])
+  })
+
+  it('opens GitLab in the browser on Ctrl/Cmd-click', async () => {
+    const opened: Array<string> = []
+    const jobs = [
+      {
+        id: 1,
+        name: 'build',
+        status: 'success',
+        webUrl: 'https://gitlab.com/job/1',
+      },
+    ]
+    const state = pipelineWith(jobs)
+    renderRow(
+      { ...state, pipeline: { ...state.pipeline!, id: 42 } },
+      { onOpenUrl: url => opened.push(url) }
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'build: success' }), {
+      ctrlKey: true,
+    })
+    await settle()
     assert.deepEqual(opened, ['https://gitlab.com/job/1'])
   })
 
@@ -104,7 +131,7 @@ describe('RepositoriesSidebarRow', () => {
     assert.deepEqual(played, [9])
   })
 
-  it('collapses extra jobs into a "+N" button that opens the pipeline', () => {
+  it('collapses extra jobs into a "+N" button that opens the pipeline', async () => {
     const opened: Array<string> = []
     const jobs = Array.from({ length: 11 }, (_, i) => ({
       id: i + 1,
@@ -115,6 +142,7 @@ describe('RepositoriesSidebarRow', () => {
 
     const more = screen.getByText('+3')
     fireEvent.click(more)
+    await settle()
     assert.deepEqual(opened, ['https://gitlab.com/a/b/-/pipelines/1'])
   })
 

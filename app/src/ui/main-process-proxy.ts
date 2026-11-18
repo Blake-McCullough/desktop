@@ -208,6 +208,15 @@ export async function showFolderContents(
 }
 
 export const openExternal = invokeProxy('open-external', 1)
+
+/** Open (or focus) the window for a GitLab pipeline. */
+export const showPipelineWindow = sendProxy('show-pipeline-window', 1)
+
+/** A save dialog attached to the calling window (not the main window). */
+export const showSaveDialogForWindow = invokeProxy(
+  'show-save-dialog-for-window',
+  1
+)
 export const moveItemToTrash = invokeProxy('move-to-trash', 1)
 
 const writeClipboardTextProxy = invokeProxy('write-clipboard-text', 1)

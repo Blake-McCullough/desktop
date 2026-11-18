@@ -1,0 +1,394 @@
+@import '../../../styles/variables';
+@import '../../../styles/themes/dark';
+@import '../../../styles/mixins';
+@import '../../../styles/globals';
+@import '../../../styles/type';
+
+html,
+body,
+#desktop-pipeline-container,
+#pipeline-app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background-color);
+  color: var(--text-color);
+  font-family: var(--font-family-sans-serif);
+  font-size: var(--font-size);
+}
+
+#pipeline-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+button {
+  font: inherit;
+  color: var(--text-color);
+  background: var(--secondary-button-background);
+  border: 1px solid var(--secondary-button-border-color, var(--box-border-color));
+  border-radius: var(--button-border-radius, 6px);
+  padding: 4px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    background: var(--secondary-button-hover-background);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  &.primary {
+    background: var(--button-background);
+    border-color: var(--button-background);
+    color: var(--button-text-color);
+
+    &:hover:not(:disabled) {
+      background: var(--button-hover-background);
+    }
+  }
+}
+
+code {
+  font-family: var(--font-family-monospace);
+  font-size: 0.92em;
+}
+
+.pipeline-header,
+.job-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-double);
+}
+
+.pipeline-header {
+  padding: var(--spacing-double);
+  border-bottom: var(--base-border);
+  background: var(--box-alt-background-color);
+
+  h1 {
+    margin: 0 0 var(--spacing-half);
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing);
+  }
+}
+
+.pipeline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--spacing-double);
+  color: var(--text-secondary-color);
+  font-size: var(--font-size-sm);
+}
+
+.pipeline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-half);
+}
+
+.live-dot {
+  color: var(--status-success-color, #1a7f37);
+  font-weight: 600;
+
+  &::before {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pipeline-pulse 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes pipeline-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  border: 1px solid currentColor;
+}
+
+$status-colors: (
+  green: #1a7f37,
+  red: #cf222e,
+  blue: #0969da,
+  yellow: #9a6700,
+  gray: #6e7781,
+  purple: #8250df,
+);
+
+@each $name, $color in $status-colors {
+  .status-#{$name} {
+    --status: #{$color};
+  }
+  body.theme-dark .status-#{$name} {
+    --status: #{lighten($color, 18%)};
+  }
+}
+
+.status-badge {
+  color: var(--status);
+}
+
+.pipeline-banner {
+  padding: var(--spacing) var(--spacing-double);
+  border-bottom: var(--base-border);
+  font-size: var(--font-size-sm);
+
+  &.error {
+    color: var(--status-error-color, #cf222e);
+  }
+
+  &.notice {
+    color: var(--text-secondary-color);
+  }
+}
+
+.pipeline-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.pipeline-jobs {
+  width: 260px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: var(--base-border);
+  padding: var(--spacing) 0;
+
+  &.empty {
+    padding: var(--spacing-double);
+    color: var(--text-secondary-color);
+  }
+
+  h2 {
+    margin: var(--spacing) var(--spacing-double) var(--spacing-half);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary-color);
+  }
+
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+.job-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing);
+  width: 100%;
+  padding: 6px var(--spacing-double);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+
+  &:hover:not(:disabled) {
+    background: var(--box-hover-background-color, rgba(128, 128, 128, 0.12));
+  }
+
+  &.selected {
+    background: var(--box-selected-background-color);
+  }
+
+  .job-icon {
+    width: 16px;
+    flex-shrink: 0;
+    text-align: center;
+    color: var(--status);
+    font-weight: 700;
+  }
+
+  .job-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .job-tag {
+    font-size: 10px;
+    color: var(--text-secondary-color);
+  }
+
+  .job-duration {
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.pipeline-job {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+
+  &.empty {
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary-color);
+  }
+}
+
+.job-header {
+  padding: var(--spacing) var(--spacing-double);
+  border-bottom: var(--base-border);
+
+  h2 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing);
+  }
+}
+
+// The log looks like a terminal in both themes, as on GitLab.
+.job-log-container {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.job-log {
+  flex: 1;
+  overflow: auto;
+  padding: var(--spacing) 0;
+  background: #1f2328;
+  color: #e6edf3;
+  font-family: var(--font-family-monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: text;
+
+  &.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9198a1;
+    font-family: var(--font-family-sans-serif);
+  }
+}
+
+.job-log-line {
+  display: flex;
+  padding: 0 var(--spacing-double) 0 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  &.section-header {
+    width: 100%;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    padding: 0 var(--spacing-double) 0 0;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.07);
+    }
+  }
+}
+
+.job-log-number {
+  flex-shrink: 0;
+  width: 56px;
+  padding-right: 12px;
+  text-align: right;
+  color: #6e7681;
+  user-select: none;
+}
+
+.job-log-caret {
+  width: 14px;
+  flex-shrink: 0;
+  margin-left: -14px;
+  color: #9198a1;
+}
+
+.job-log-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.job-log-duration {
+  flex-shrink: 0;
+  margin-left: var(--spacing);
+  color: #9198a1;
+}
+
+.job-log-notice {
+  padding: 4px var(--spacing-double) 8px 68px;
+  color: #9198a1;
+  font-family: var(--font-family-sans-serif);
+
+  button {
+    padding: 0 8px;
+    background: transparent;
+    color: #4493f8;
+    border-color: #3d444d;
+  }
+}
+
+.job-log-live {
+  padding-left: 68px;
+}
+
+.job-log-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: #e6edf3;
+  animation: pipeline-pulse 1s steps(1) infinite;
+}
+
+.job-log-jump {
+  position: absolute;
+  right: 24px;
+  bottom: 16px;
+  background: #0969da;
+  border-color: #0969da;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  &:hover:not(:disabled) {
+    background: #0860ca;
+  }
+}

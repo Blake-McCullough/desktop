@@ -23,6 +23,7 @@ import { DesktopNotificationPermission } from 'desktop-notifications'
 import { NotificationCallback } from 'desktop-notifications'
 import { DesktopAliveEvent } from './stores/alive-store'
 import { CLIAction } from './cli-action'
+import { IPipelineWindowRequest } from './pipeline-window-shared'
 
 /**
  * Defines the simplex IPC channel names we use from the renderer
@@ -33,6 +34,10 @@ import { CLIAction } from './cli-action'
 export type RequestChannels = {
   /** Main → renderer: progress of downloading/installing a custom update. */
   'custom-update-progress': (progress: CustomUpdateProgress) => void
+  /** Open (or focus) the window showing a GitLab pipeline. */
+  'show-pipeline-window': (request: IPipelineWindowRequest) => void
+  /** Main → pipeline window: select a job (window was already open). */
+  'pipeline-window-select-job': (jobId: number) => void
   'select-all-window-contents': () => void
   'dialog-did-open': () => void
   'update-menu-state': (
@@ -114,6 +119,10 @@ export type RequestChannels = {
 export type RequestResponseChannels = {
   /** Check this repository's GitHub releases for a newer custom build. */
   'custom-update-check': () => Promise<ICustomUpdateCheckResult>
+  /** A save dialog attached to the window that asks (the pipeline window). */
+  'show-save-dialog-for-window': (
+    options: Electron.SaveDialogOptions
+  ) => Promise<string | null>
   /** Download and install a custom build release, then restart. */
   'custom-update-install': (
     release: ICustomRelease

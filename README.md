@@ -113,10 +113,15 @@ gitlab.com, your self-hosted servers, and any found in your repositories are
 listed — and a default token covers any server without one.
 
 - **Sidebar**: a dot per job for the latest commit you've pushed on the
-  current branch; running jobs pulse, and clicking a dot opens the job in
-  GitLab. Manual jobs show a **▶ Run** button. Right after a push, the
-  sidebar waits for that commit's pipeline rather than showing an older one.
+  current branch; running jobs pulse, and clicking a dot opens that job in
+  the pipeline window (Ctrl/Cmd-click opens GitLab instead). Manual jobs show
+  a **▶ Run** button. Right after a push, the sidebar waits for that commit's
+  pipeline rather than showing an older one.
 - **History**: a dot per job for every commit; click to open the pipeline.
+- **Pipeline window**: the pipeline's jobs by stage and each job's log, with
+  colours and collapsible sections like GitLab's own job page. A running
+  job's log follows new output live. Run manual jobs, retry or cancel jobs or
+  the whole pipeline, and download artifacts without opening the browser.
 - **Clone from GitLab**: **File → Clone repository → GitLab** lists every
   project your token can see, grouped by GitLab group and subgroup, with a
   filter and an instance picker if you use more than one instance. Cloning
@@ -133,6 +138,8 @@ listed — and a default token covers any server without one.
   sidebar says when they'll resume.
 - **Test** next to each token shows which user and scopes it has on that
   server. A rejected token only pauses that server's pipelines.
+
+<p align="center"><img src="docs/screenshots/pipeline-window.png" alt="The pipeline window: jobs grouped by stage and the live log of a running job" width="720" /></p>
 
 <p align="center"><img src="docs/screenshots/clone-from-gitlab.png" alt="Cloning from GitLab: projects grouped by GitLab group and subgroup" width="480" /></p>
 

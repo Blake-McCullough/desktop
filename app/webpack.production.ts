@@ -60,11 +60,24 @@ const crashConfig = merge({}, common.crash, config, {
   ],
 })
 
+const pipelineConfig = merge({}, common.pipeline, config, {
+  module: {
+    rules: [
+      {
+        test: /\.(scss|css)$/,
+        use: [MiniCssExtractPlugin.loader, 'css-loader', 'sass-loader'],
+      },
+    ],
+  },
+  plugins: [new MiniCssExtractPlugin({ filename: 'pipeline.css' })],
+})
+
 // eslint-disable-next-line no-restricted-syntax
 export default [
   mainConfig,
   rendererConfig,
   crashConfig,
+  pipelineConfig,
   cliConfig,
   highlighterConfig,
 ]

@@ -291,15 +291,28 @@ export class CommitListItem extends React.PureComponent<
     return null
   }
 
-  private onPipelineClick = (event: React.MouseEvent<HTMLElement>) => {
-    const url = this.state.gitLabPipeline?.webUrl
-    if (url === undefined) {
+  private onPipelineClick = async (event: React.MouseEvent<HTMLElement>) => {
+    const pipeline = this.state.gitLabPipeline
+    if (pipeline == null) {
       return
     }
     // Don't also start a drag or change the selection.
     event.stopPropagation()
     event.preventDefault()
-    shell.openExternal(url)
+
+    // The pipeline window, or GitLab with Ctrl/Cmd held.
+    const { repository } = this.props
+    const toBrowser = event.ctrlKey || event.metaKey
+    if (
+      !toBrowser &&
+      repository != null &&
+      (await gitLabPipelineStatusStore.openPipelineWindow(repository, pipeline))
+    ) {
+      return
+    }
+    if (pipeline.webUrl !== undefined) {
+      shell.openExternal(pipeline.webUrl)
+    }
   }
 
   private renderGitLabPipelineIndicator() {
@@ -312,7 +325,11 @@ export class CommitListItem extends React.PureComponent<
     const hidden = pipeline.jobs.length - visible.length
     const tooltip = [
       `Pipeline ${formatStatus(pipeline.status)}${
-        pipeline.webUrl !== undefined ? ' — click to open in GitLab' : ''
+        pipeline.id !== undefined
+          ? ' — click for details, Ctrl+click to open in GitLab'
+          : pipeline.webUrl !== undefined
+          ? ' — click to open in GitLab'
+          : ''
       }`,
       ...pipeline.jobs.map(
         job =>
@@ -354,7 +371,7 @@ export class CommitListItem extends React.PureComponent<
       </TooltippedContent>
     )
 
-    if (pipeline.webUrl === undefined) {
+    if (pipeline.webUrl === undefined && pipeline.id === undefined) {
       return <div className="gitlab-pipeline-indicator">{dots}</div>
     }
 

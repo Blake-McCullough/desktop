@@ -34,6 +34,8 @@ export interface IGitLabJobStatus {
 
 /** The latest pipeline (or set of commit statuses) for a commit. */
 export interface IGitLabPipelineInfo {
+  /** The pipeline's id; absent when these are plain commit statuses. */
+  readonly id?: number
   /** The commit the statuses belong to. */
   readonly sha: string
   /** The overall pipeline status, e.g. `success`, `running`, `failed`. */
@@ -409,6 +411,26 @@ function projectApiPath(project: IGitLabProject) {
 }
 
 /**
+ * Call a project API endpoint (path relative to the project, e.g.
+ * `/pipelines/1`), with the same rate limiting, retries and errors as
+ * everything else.
+ */
+export async function gitLabProjectRequest<T>(
+  project: IGitLabProject,
+  path: string,
+  token: string,
+  options: { method?: 'GET' | 'POST'; kind?: 'json' | 'text' | 'raw' } = {}
+): Promise<T> {
+  const { body } = await gitLabRequestWithHeaders<T>(
+    apiUrl(project, `${projectApiPath(project)}${path}`),
+    token,
+    options.method ?? 'GET',
+    options.kind ?? 'json'
+  )
+  return body
+}
+
+/**
  * Make a request to the GitLab API and parse the JSON body.
  *
  * Throws a `GitLabApiError` for non-2xx responses (after retrying transient
@@ -427,7 +449,9 @@ async function gitLabRequest<T>(
 async function gitLabRequestWithHeaders<T>(
   url: string,
   token: string,
-  method: 'GET' | 'POST' = 'GET'
+  method: 'GET' | 'POST' = 'GET',
+  /** `json` (default) parses the body, `text` returns it, `raw` leaves it unread. */
+  kind: 'json' | 'text' | 'raw' = 'json'
 ): Promise<{ readonly body: T; readonly headers: Headers }> {
   const budget = getBudget(originOf(url))
   let lastError: GitLabApiError | null = null
@@ -456,7 +480,7 @@ async function gitLabRequestWithHeaders<T>(
             method,
             headers: {
               'PRIVATE-TOKEN': token,
-              Accept: 'application/json',
+              Accept: kind === 'json' ? 'application/json' : '*/*',
             },
             signal: controller.signal,
             cache: 'no-store',
@@ -495,8 +519,14 @@ async function gitLabRequestWithHeaders<T>(
 
       if (response.ok) {
         budget.nextPauseMs = MinRateLimitPauseMs
+        if (kind === 'raw') {
+          return { body: response as unknown as T, headers: response.headers }
+        }
         // Some endpoints (e.g. play) can legitimately return an empty body.
         const text = await response.text()
+        if (kind === 'text') {
+          return { body: text as unknown as T, headers: response.headers }
+        }
         return {
           body: (text.length > 0 ? JSON.parse(text) : null) as T,
           headers: response.headers,
@@ -794,6 +824,7 @@ export class GitLabPipelineResolver {
     }
 
     return {
+      id: pipeline.id,
       sha,
       status: pipeline.status,
       webUrl: pipeline.web_url,

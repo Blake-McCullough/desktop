@@ -1,4 +1,5 @@
 import { Emitter, Disposable } from 'event-kit'
+import { showPipelineWindow } from '../../ui/main-process-proxy'
 import { Repository } from '../../models/repository'
 import { getRemotes } from '../git/remote'
 import { git } from '../git/core'
@@ -808,6 +809,34 @@ class GitLabPipelineStatusStore {
     await this.refresh([repository], { force: true })
     // The poll interval will now be the fast one since a job is active.
     this.scheduleNextPoll()
+  }
+
+  /**
+   * Show a pipeline in the pipeline window (selecting a job, if given).
+   * Returns false when that isn't possible, e.g. for plain commit statuses
+   * that have no pipeline, so the caller can open GitLab instead.
+   */
+  public async openPipelineWindow(
+    repository: Repository,
+    pipeline: IGitLabPipelineInfo,
+    jobId: number | null = null
+  ): Promise<boolean> {
+    if (pipeline.id === undefined) {
+      return false
+    }
+    const project = await this.resolveProject(repository)
+    if (project === null) {
+      return false
+    }
+    showPipelineWindow({
+      webBaseUrl: project.webBaseUrl,
+      hostname: project.hostname,
+      projectPath: project.projectPath,
+      pipelineId: pipeline.id,
+      jobId,
+      repositoryName: repository.alias ?? repository.name,
+    })
+    return true
   }
 
   /* --------------------------- per-commit status -------------------------- */

@@ -136,6 +136,23 @@ export const crash = merge({}, commonConfig, {
   ],
 })
 
+export const pipeline = merge({}, commonConfig, {
+  entry: { pipeline: path.resolve(__dirname, 'src/pipeline-window/index') },
+  target: 'electron-renderer',
+  plugins: [
+    new HtmlWebpackPlugin({
+      title: 'Pipeline',
+      filename: 'pipeline.html',
+      chunks: ['pipeline'],
+    }),
+    new webpack.DefinePlugin(
+      Object.assign({}, replacements, {
+        __PROCESS_KIND__: JSON.stringify('pipeline'),
+      })
+    ),
+  ],
+})
+
 export const cli = merge({}, commonConfig, {
   entry: { cli: path.resolve(__dirname, 'src/cli/main') },
   target: 'node',

@@ -17,6 +17,8 @@ import * as Fs from 'fs'
 
 import { AppWindow } from './app-window'
 import { checkForCustomUpdate, installCustomUpdate } from './custom-updater'
+import { showPipelineWindow } from './pipeline-window'
+import { parsePipelineWindowRequest } from '../lib/pipeline-window-shared'
 import { buildDefaultMenu, getAllMenuItems } from './menu'
 import { shellNeedsPatching, updateEnvironmentForProcess } from '../lib/shell'
 import { parseAppURL } from '../lib/parse-app-url'
@@ -747,6 +749,22 @@ app.on('ready', () => {
     'is-window-focused',
     async () => mainWindow?.isFocused() ?? false
   )
+
+  ipcMain.on('show-pipeline-window', (_, request) => {
+    const parsed = parsePipelineWindowRequest(request)
+    if (parsed !== null) {
+      showPipelineWindow(parsed)
+    }
+  })
+
+  ipcMain.handle('show-save-dialog-for-window', async (event, options) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const result =
+      window === null
+        ? await dialog.showSaveDialog(options)
+        : await dialog.showSaveDialog(window, options)
+    return result.canceled || !result.filePath ? null : result.filePath
+  })
 
   ipcMain.handle('custom-update-check', async () => checkForCustomUpdate())
 
