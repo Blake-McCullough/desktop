@@ -42,9 +42,7 @@ import { isInApplicationFolder } from '../../ui/main-process-proxy'
 import { getRendererGUID } from '../get-renderer-guid'
 import { ValidNotificationPullRequestReviewState } from '../valid-notification-pull-request-review'
 import { useExternalCredentialHelperKey } from '../trampoline/use-external-credential-helper'
-import { getUserAgent } from '../http'
 import { getHooksEnvEnabled } from '../hooks/config'
-import { enableNewStatsEndpoint } from '../feature-flag'
 import { parseModelKey } from '../copilot/byok'
 import { DefaultCopilotModel } from '../stores/copilot-store'
 import { getSystemNotificationsPermission } from '../notifications/notification-permission'
@@ -63,11 +61,6 @@ type PullRequestReviewStatFieldSuffix =
 
 type PullRequestReviewStatField =
   `pullRequestReview${PullRequestReviewStatFieldInfix}${PullRequestReviewStatFieldSuffix}`
-
-const LegacyStatsEndpoint = 'https://central.github.com/api/usage/desktop'
-
-const StatsEndpoint =
-  'https://cafe.github.com/twirp/clientappsfe.observability.v1.TelemetryAPI/RecordEvents'
 
 /** The URL to the stats samples page. */
 export const SamplesURL = CustomLinks.doc('docs/process/usage-data.md')
@@ -645,27 +638,13 @@ export function buildStatsPayload(body: StatsPayload): ITelemetryPayload {
   }
 }
 
-const defaultPostImplementation = (body: StatsPayload) => {
-  if (enableNewStatsEndpoint()) {
-    return fetch(StatsEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'user-agent': getUserAgent(),
-      },
-      body: JSON.stringify(buildStatsPayload(body)),
-    })
-  }
-
-  return fetch(LegacyStatsEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'user-agent': getUserAgent(),
-    },
-    body: JSON.stringify(body),
-  })
-}
+/**
+ * This build doesn't send usage statistics anywhere. Reports are dropped
+ * here (and treated as delivered, so the local counters are cleared rather
+ * than piling up); nothing leaves the computer.
+ */
+const defaultPostImplementation = (_body: StatsPayload) =>
+  Promise.resolve(new Response(null, { status: 204 }))
 
 /** The store for the app's stats. */
 export class StatsStore implements IStatsStore {

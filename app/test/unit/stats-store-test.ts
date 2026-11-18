@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, it, mock } from 'node:test'
 import assert from 'node:assert'
 import { ipcRenderer } from 'electron'
 import { TestStatsDatabase } from '../helpers/databases'
-import { mockNotification } from '../helpers/mock-notification'
 
 import { StatsStore } from '../../src/lib/stats'
 import { TestActivityMonitor } from '../helpers/test-activity-monitor'
@@ -269,175 +268,29 @@ describe('StatsStore', () => {
     assert.strictEqual(await statsDb.dailyMeasures.count(), 1)
   })
 
-  for (const permission of ['denied', null] as const) {
-    it(`reports ${
-      permission === null
-        ? 'null after lookup failure'
-        : 'false for denied permission'
-    } to the new endpoint`, async t => {
-      statsDb = await createStatsDb()
-      localStorage.setItem('has-sent-stats-opt-in-ping', '1')
-      mockNotification(t, {
-        get permission() {
-          if (permission !== null) {
-            return permission
-          }
-          throw new Error('Permission lookup failed')
-        },
-      })
-      const invoke = ipcRenderer.invoke
-      t.mock.method(
-        ipcRenderer,
-        'invoke',
-        async (channel: string, ...args: unknown[]) => {
-          if (channel === 'get-notifications-permission') {
-            if (permission !== null) {
-              return permission
-            }
-            throw new Error('Permission lookup failed')
-          }
-          return invoke(channel, ...args)
-        }
-      )
-      const warn = t.mock.method(log, 'warn')
-      let requestBody: string | undefined
-      t.mock.method(
-        globalThis,
-        'fetch',
-        async (_input: string | URL | Request, init?: RequestInit) => {
-          requestBody = typeof init?.body === 'string' ? init.body : undefined
-          return new Response(null, { status: 200 })
-        }
-      )
-      const store = new StatsStore(statsDb, new TestActivityMonitor())
-      await store.increment('commits')
-
-      assert.strictEqual(await store.sendStats([], []), true)
-      assert.strictEqual(warn.mock.callCount(), permission === null ? 1 : 0)
-      assert.ok(requestBody)
-      const payload = JSON.parse(requestBody)
-      assert.strictEqual(
-        payload.events[0].dimensions.notificationsPermission,
-        String(permission === null ? null : false)
-      )
-      assert.strictEqual(payload.events[0].measures.commits, 1)
-      assert.strictEqual(
-        'notificationsPermission' in payload.events[0].measures,
-        false
-      )
-    })
-  }
-  it('posts structured stats to the new endpoint by default', async t => {
+  it('never sends stats over the network', async t => {
     statsDb = await createStatsDb()
-    const activityMonitor = new TestActivityMonitor()
-    let requestUrl: string | undefined
-    let requestBody: string | undefined
-    const previousPreviewFeatures = process.env.GITHUB_DESKTOP_PREVIEW_FEATURES
     localStorage.setItem('has-sent-stats-opt-in-ping', '1')
-    delete process.env.GITHUB_DESKTOP_PREVIEW_FEATURES
-    t.after(() => {
-      if (previousPreviewFeatures !== undefined) {
-        process.env.GITHUB_DESKTOP_PREVIEW_FEATURES = previousPreviewFeatures
-      }
-    })
+    const fetch = t.mock.method(globalThis, 'fetch')
 
-    t.mock.method(
-      globalThis,
-      'fetch',
-      async (input: string | URL | Request, init?: RequestInit) => {
-        requestUrl = String(input)
-        requestBody = typeof init?.body === 'string' ? init.body : undefined
-        return new Response(null, { status: 200 })
-      }
-    )
-
-    const store = new StatsStore(statsDb, activityMonitor)
+    const store = new StatsStore(statsDb, new TestActivityMonitor())
     await store.increment('commits')
-    await store.increment('checksFailedNotificationShownCount')
-    await store.recordLaunchStats({
-      mainReadyTime: 112.29,
-      loadTime: 15481.89,
-      rendererReadyTime: 7216.25,
-    })
 
+    // Treated as delivered, so the local counters are cleared.
     assert.strictEqual(await store.sendStats([], []), true)
-    assert.strictEqual(
-      requestUrl,
-      'https://cafe.github.com/twirp/clientappsfe.observability.v1.TelemetryAPI/RecordEvents'
-    )
-    assert.notStrictEqual(requestBody, undefined)
-
-    const payload = JSON.parse(requestBody ?? '')
-    assert.strictEqual(payload.events[0].app, 'desktop')
-    assert.strictEqual(payload.events[0].event_type, 'usage')
-    assert.strictEqual(payload.events[0].measures.commits, 1)
-    assert.strictEqual(
-      payload.events[0].measures.checksFailedNotificationShownCount,
-      1
-    )
-    assert.strictEqual(payload.events[0].measures.mainReadyTime, 112)
-    assert.strictEqual(payload.events[0].measures.loadTime, 15482)
-    assert.strictEqual(payload.events[0].measures.rendererReadyTime, 7216)
-    assert.strictEqual(payload.events[0].dimensions.version, 'dev')
-    assert.strictEqual(
-      payload.events[0].dimensions.notificationsPermission,
-      __DARWIN__ || __WIN32__ ? 'true' : 'null'
-    )
-    assert.strictEqual(
-      'notificationsPermission' in payload.events[0].measures,
-      false
-    )
-    assert.strictEqual(
-      typeof payload.events[0].dimensions.gitHooksEnvEnabled,
-      'string'
-    )
-    assert.strictEqual(typeof payload.events[0].dimensions.active, 'string')
-    assert.strictEqual(payload.events[0].measures.repositoryCount, 0)
-    assert.ok(Buffer.byteLength(requestBody ?? '') < 16 * 1024)
+    assert.strictEqual(fetch.mock.callCount(), 0)
   })
 
-  it('posts structured opt-in pings to the new endpoint', async t => {
+  it('never sends the opt-in ping over the network', async t => {
     statsDb = await createStatsDb()
-    const activityMonitor = new TestActivityMonitor()
-    let requestBody: string | undefined
-    let resolveRequest: (() => void) | undefined
-    const requestReceived = new Promise<void>(resolve => {
-      resolveRequest = resolve
-    })
-    const previousPreviewFeatures = process.env.GITHUB_DESKTOP_PREVIEW_FEATURES
-    process.env.GITHUB_DESKTOP_PREVIEW_FEATURES = '1'
     localStorage.removeItem('has-sent-stats-opt-in-ping')
     localStorage.removeItem('stats-opt-out')
-    t.after(() => {
-      localStorage.removeItem('stats-opt-out')
-      if (previousPreviewFeatures === undefined) {
-        delete process.env.GITHUB_DESKTOP_PREVIEW_FEATURES
-      } else {
-        process.env.GITHUB_DESKTOP_PREVIEW_FEATURES = previousPreviewFeatures
-      }
-    })
+    t.after(() => localStorage.removeItem('stats-opt-out'))
+    const fetch = t.mock.method(globalThis, 'fetch')
 
-    t.mock.method(
-      globalThis,
-      'fetch',
-      async (_input: string | URL | Request, init?: RequestInit) => {
-        requestBody = typeof init?.body === 'string' ? init.body : undefined
-        resolveRequest?.()
-        return new Response(null, { status: 200 })
-      }
-    )
+    new StatsStore(statsDb, new TestActivityMonitor())
+    await new Promise(resolve => setTimeout(resolve, 50))
 
-    new StatsStore(statsDb, activityMonitor)
-    await requestReceived
-
-    const payload = JSON.parse(requestBody ?? '')
-    assert.deepStrictEqual(payload.events[0], {
-      app: 'desktop',
-      event_type: 'ping',
-      dimensions: {
-        optIn: 'true',
-        previousOptInValue: 'null',
-      },
-    })
+    assert.strictEqual(fetch.mock.callCount(), 0)
   })
 })
