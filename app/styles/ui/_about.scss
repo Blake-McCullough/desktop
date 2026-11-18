@@ -33,6 +33,16 @@ dialog#about {
       }
     }
 
+    p.about-custom-build {
+      max-width: 340px;
+      margin: var(--spacing) auto var(--spacing-half);
+      color: var(--text-secondary-color);
+    }
+
+    p.about-links {
+      margin-top: 0;
+    }
+
     .terms-and-license-container {
       margin-top: var(--spacing);
     }

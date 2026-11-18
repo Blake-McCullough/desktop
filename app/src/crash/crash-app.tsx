@@ -135,8 +135,8 @@ export class CrashApp extends React.Component<CrashAppProps, ICrashAppState> {
   private renderTitle() {
     const message =
       this.state.type === 'launch'
-        ? 'GitHub Desktop failed to launch'
-        : 'GitHub Desktop encountered an error'
+        ? 'GitHub Desktop Custom GitLab CI failed to launch'
+        : 'GitHub Desktop Custom GitLab CI encountered an error'
 
     return (
       <header>
@@ -150,18 +150,20 @@ export class CrashApp extends React.Component<CrashAppProps, ICrashAppState> {
     if (this.state.type === 'launch') {
       return (
         <p>
-          GitHub Desktop encountered a catastrophic error that prevents it from
-          launching. This has been reported to the team, but if you encounter
-          this repeatedly please report this issue to the GitHub Desktop{' '}
+          GitHub Desktop Custom GitLab CI encountered a catastrophic error that
+          prevents it from launching. This has been reported to the team, but if
+          you encounter this repeatedly please report this issue to the GitHub
+          Desktop Custom GitLab CI{' '}
           <LinkButton uri={issuesUri}>issue tracker</LinkButton>.
         </p>
       )
     } else {
       return (
         <p>
-          GitHub Desktop has encountered an unrecoverable error and will need to
-          restart. This has been reported to the team, but if you encounter this
-          repeatedly please report this issue to the GitHub Desktop{' '}
+          GitHub Desktop Custom GitLab CI has encountered an unrecoverable error
+          and will need to restart. This has been reported to the team, but if
+          you encounter this repeatedly please report this issue to the GitHub
+          Desktop Custom GitLab CI{' '}
           <LinkButton uri={issuesUri}>issue tracker</LinkButton>.
         </p>
       )

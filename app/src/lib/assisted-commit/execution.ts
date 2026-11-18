@@ -113,7 +113,7 @@ export async function executeAssistedCommitRun(
   context.assertInputs(run)
   if (!(await context.copilot.isAssistedCommitRuntimeAvailable())) {
     throw new Error(
-      'Copilot runtime is unavailable. Restart GitHub Desktop or reinstall it before trying assisted commits.'
+      'Copilot runtime is unavailable. Restart GitHub Desktop Custom GitLab CI or reinstall it before trying assisted commits.'
     )
   }
   await context.assertFreshInputs(run)

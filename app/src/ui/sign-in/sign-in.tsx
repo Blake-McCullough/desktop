@@ -38,9 +38,9 @@ const DefaultTitle = 'Sign in'
 
 const browserSignInInfoContent = (
   <p>
-    Your browser will redirect you back to GitHub Desktop once you've signed in.
-    If your browser asks for your permission to launch GitHub Desktop, please
-    allow it.
+    Your browser will redirect you back to GitHub Desktop Custom GitLab CI once
+    you've signed in. If your browser asks for your permission to launch GitHub
+    Desktop Custom GitLab CI, please allow it.
   </p>
 )
 

@@ -79,10 +79,10 @@ export function buildDefaultMenuTemplate({
 
   if (__DARWIN__) {
     template.push({
-      label: 'GitHub Desktop',
+      label: 'GitHub Desktop Custom GitLab CI',
       submenu: [
         {
-          label: 'About GitHub Desktop',
+          label: 'About GitHub Desktop Custom GitLab CI',
           click: emit('show-about'),
           id: 'about',
         },
@@ -643,7 +643,7 @@ export function buildDefaultMenuTemplate({
         ...helpItems,
         separator,
         {
-          label: '&About GitHub Desktop',
+          label: '&About GitHub Desktop Custom GitLab CI',
           click: emit('show-about'),
           id: 'about',
         },

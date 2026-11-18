@@ -343,7 +343,9 @@ export function parseRepositoryExport(raw: unknown): IRepositoryExportFile {
     typeof data !== 'object' ||
     data.format !== RepositoryExportFormat
   ) {
-    throw new Error("That file isn't a repository export from GitHub Desktop.")
+    throw new Error(
+      "That file isn't a repository export from GitHub Desktop Custom GitLab CI."
+    )
   }
 
   if (

@@ -74,8 +74,8 @@ export class InstallingUpdate extends React.Component<IInstallingUpdateProps> {
       >
         <DialogContent>
           <Row className="updating-message">
-            Do not close GitHub Desktop while the update is in progress. Closing
-            now may break your installation.
+            Do not close GitHub Desktop Custom GitLab CI while the update is in
+            progress. Closing now may break your installation.
           </Row>
         </DialogContent>
         <DialogFooter>

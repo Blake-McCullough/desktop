@@ -60,9 +60,10 @@ export class WarnForcePushDialog extends React.Component<
           </p>
           <p id="warn-force-push-confirmation-message">
             At the end of the {operation.toLowerCase()} flow, GitHub Desktop
-            will enable you to force push the branch to update the upstream
-            branch. Force pushing will alter the history on the remote and
-            potentially cause problems for others collaborating on this branch.
+            Custom GitLab CI will enable you to force push the branch to update
+            the upstream branch. Force pushing will alter the history on the
+            remote and potentially cause problems for others collaborating on
+            this branch.
           </p>
           <div>
             <Checkbox

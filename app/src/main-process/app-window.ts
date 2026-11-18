@@ -324,8 +324,8 @@ export class AppWindow {
     dialog
       .showMessageBox(this.window, {
         type: 'error',
-        title: 'GitHub Desktop',
-        message: 'GitHub Desktop keeps running into a problem',
+        title: 'GitHub Desktop Custom GitLab CI',
+        message: 'GitHub Desktop Custom GitLab CI keeps running into a problem',
         detail: `The window has stopped ${this.recentRendererCrashes.length} times in the last ten minutes (${reason}). You can reload it or quit.`,
         buttons: ['Reload', 'Quit'],
         defaultId: 0,
@@ -352,8 +352,8 @@ export class AppWindow {
     dialog
       .showMessageBox(this.window, {
         type: 'warning',
-        title: 'GitHub Desktop',
-        message: 'GitHub Desktop is not responding',
+        title: 'GitHub Desktop Custom GitLab CI',
+        message: 'GitHub Desktop Custom GitLab CI is not responding',
         detail: 'You can keep waiting or reload the window.',
         buttons: ['Keep waiting', 'Reload'],
         defaultId: 0,

@@ -84,6 +84,9 @@ class UpdateInfo extends React.Component<IUpdateInfoProps> {
   }
 }
 
+/** The official GitHub Desktop's source code, which this build is based on. */
+const OfficialGitHubDesktopRepository = 'https://github.com/desktop/desktop'
+
 /**
  * A dialog that presents information about the
  * running application such as name and version.
@@ -267,12 +270,7 @@ export class About extends React.Component<IAboutProps> {
         {this.renderUpdateErrors()}
         <DialogContent>
           <Row className="logo">
-            <img
-              src={DesktopLogo}
-              alt="GitHub Desktop"
-              width="64"
-              height="64"
-            />
+            <img src={DesktopLogo} alt="" width="64" height="64" />
           </Row>
           <h1 id={titleId}>About {name}</h1>
           <p className="no-padding">
@@ -280,6 +278,20 @@ export class About extends React.Component<IAboutProps> {
               {versionText} ({this.props.applicationArchitecture})
             </span>{' '}
             ({releaseNotesLink})
+          </p>
+          <p className="about-custom-build">
+            A custom build of the official GitHub Desktop that adds GitLab CI/CD
+            pipelines, repository groups and more. It isn't made or supported by
+            GitHub.
+          </p>
+          <p className="about-links">
+            <LinkButton uri={OfficialGitHubDesktopRepository}>
+              Official GitHub Desktop on GitHub
+            </LinkButton>
+            {' · '}
+            <LinkButton uri={CustomLinks.repository}>
+              This project on GitHub
+            </LinkButton>
           </p>
           {this.renderUpdateDetails()}
           {this.renderUpdateButton()}

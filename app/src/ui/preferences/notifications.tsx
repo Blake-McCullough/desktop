@@ -128,7 +128,7 @@ export class Notifications extends React.Component<
           <LinkButton onClick={this.onGrantNotificationPermission}>
             grant permission
           </LinkButton>{' '}
-          to display these notifications from GitHub Desktop.
+          to display these notifications from GitHub Desktop Custom GitLab CI.
         </>
       )
     }
@@ -142,8 +142,9 @@ export class Notifications extends React.Component<
     if (warnNotificationsDenied) {
       return (
         <div className="setting-hint-warning">
-          <span className="warning-icon">⚠️</span> GitHub Desktop has no
-          permission to display notifications. Please, enable them in the{' '}
+          <span className="warning-icon">⚠️</span> GitHub Desktop Custom GitLab
+          CI has no permission to display notifications. Please, enable them in
+          the{' '}
           <LinkButton uri={notificationSettingsURL}>
             Notifications Settings
           </LinkButton>
@@ -159,7 +160,8 @@ export class Notifications extends React.Component<
     return (
       <>
         {' '}
-        Make sure notifications are {verb} for GitHub Desktop in the{' '}
+        Make sure notifications are {verb} for GitHub Desktop Custom GitLab CI
+        in the{' '}
         <LinkButton uri={notificationSettingsURL}>
           Notifications Settings
         </LinkButton>
