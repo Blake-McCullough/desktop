@@ -31,6 +31,8 @@ function renderAppearance(alwaysShowWorktreeList = false) {
     showRepositoriesSidebar: true,
     onShowRepositoriesSidebarChanged: (value: boolean) =>
       sidebarChanges.push(value),
+    useSystemMenuBar: false,
+    onUseSystemMenuBarChanged: () => {},
   }
   const view = render(<Appearance {...props} />)
   return { ...view, props, changes, sidebarChanges }

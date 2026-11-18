@@ -87,6 +87,13 @@ export class AppWindow {
     }
 
     this.window = new BrowserWindow(windowOptions)
+
+    // On Linux the app draws its own, themed menu bar (as on Windows); the
+    // GTK one ignores dark mode. Menu shortcuts keep working while it's
+    // hidden. The window shows it again if you prefer the system one.
+    if (__LINUX__) {
+      this.window.setMenuBarVisibility(false)
+    }
     addTrustedIPCSender(this.window.webContents)
 
     installNotificationCallback(this.window)
@@ -458,6 +465,11 @@ export class AppWindow {
   }
 
   /** Send the app menu to the renderer. */
+  /** Linux: show the system menu bar, or hide it for the in-app one. */
+  public setNativeMenuBarVisible(visible: boolean) {
+    this.window.setMenuBarVisibility(visible)
+  }
+
   public sendAppMenu() {
     const appMenu = Menu.getApplicationMenu()
     if (appMenu) {

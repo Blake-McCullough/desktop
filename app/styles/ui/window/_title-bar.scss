@@ -15,6 +15,15 @@
     border-bottom: 1px solid #000;
   }
 
+  // Linux: the window manager draws the real title bar; this is just the
+  // in-app menu bar under it, so it mustn't act as a drag area.
+  body.platform-linux & {
+    -webkit-app-region: no-drag;
+    height: var(--win32-title-bar-height);
+    background: var(--win32-title-bar-background-color);
+    border-bottom: 1px solid #000;
+  }
+
   @include win32 {
     height: var(--win32-title-bar-height);
     background: var(--win32-title-bar-background-color);

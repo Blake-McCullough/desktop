@@ -64,6 +64,7 @@ describe('IPC channel contract', () => {
     'auto-updater-update-downloaded',
     'native-theme-updated',
     'set-native-theme-source',
+    'set-native-menu-bar-visible',
     'update-window-background-color',
     'focus-window',
     'custom-update-progress',

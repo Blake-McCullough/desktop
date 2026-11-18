@@ -811,6 +811,12 @@ app.on('ready', () => {
     nativeTheme.themeSource = themeName
   })
 
+  ipcMain.on('set-native-menu-bar-visible', (event, visible) => {
+    if (__LINUX__ && event.sender === mainWindow?.webContents) {
+      mainWindow.setNativeMenuBarVisible(visible === true)
+    }
+  })
+
   ipcMain.handle(
     'should-use-dark-colors',
     async () => nativeTheme.shouldUseDarkColors

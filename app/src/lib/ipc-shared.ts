@@ -102,6 +102,8 @@ export type RequestChannels = {
   'auto-updater-update-downloaded': () => void
   'native-theme-updated': () => void
   'set-native-theme-source': (themeName: ThemeSource) => void
+  /** Linux: show the GTK menu bar, or hide it for the in-app one. */
+  'set-native-menu-bar-visible': (visible: boolean) => void
   'update-window-background-color': (color: string) => void
   'focus-window': () => void
   'notification-event': NotificationCallback<DesktopAliveEvent>

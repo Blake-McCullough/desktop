@@ -32,6 +32,8 @@ interface IAppearanceProps {
   readonly onAlwaysShowWorktreeListChanged: (value: boolean) => void
   readonly showRepositoriesSidebar: boolean
   readonly onShowRepositoriesSidebarChanged: (value: boolean) => void
+  readonly useSystemMenuBar: boolean
+  readonly onUseSystemMenuBarChanged: (value: boolean) => void
   readonly selectedDateFormat: DateFormat
   readonly onSelectedDateFormatChanged: (format: DateFormat) => void
   readonly selectedTimeFormat: TimeFormat
@@ -320,8 +322,37 @@ export class Appearance extends React.Component<
           switch repositories from the Current repository list in the toolbar,
           which uses the same groups and colors.
         </p>
+
+        {__LINUX__ && (
+          <>
+            <Checkbox
+              label="Use the system menu bar"
+              value={
+                this.props.useSystemMenuBar
+                  ? CheckboxValue.On
+                  : CheckboxValue.Off
+              }
+              onChange={this.onUseSystemMenuBarChanged}
+              ariaDescribedBy="use-system-menu-bar-description"
+            />
+            <p
+              id="use-system-menu-bar-description"
+              className="settings-description"
+            >
+              Use your desktop's menu bar instead of the app's own. It follows
+              your desktop theme rather than the app's, so it can stay light in
+              dark mode.
+            </p>
+          </>
+        )}
       </div>
     )
+  }
+
+  private onUseSystemMenuBarChanged = (
+    event: React.FormEvent<HTMLInputElement>
+  ) => {
+    this.props.onUseSystemMenuBarChanged(event.currentTarget.checked)
   }
 
   private onShowRepositoriesSidebarChanged = (

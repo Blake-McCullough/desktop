@@ -12,6 +12,10 @@ import { Advanced } from './advanced'
 import { DefaultTokenKey, GitLab } from './gitlab'
 import { gitLabPipelineStatusStore } from '../../lib/stores/gitlab-pipeline-status-store'
 import { TagColors } from './tag-colors'
+import {
+  getUseSystemMenuBar,
+  setUseSystemMenuBar,
+} from '../../lib/linux-menu-bar'
 import { Shortcuts } from './shortcuts'
 import { ShortcutOverrides } from '../../models/shortcuts'
 import { getShortcutOverrides } from '../../lib/shortcut-settings'
@@ -207,6 +211,7 @@ interface IPreferencesState {
   readonly initiallySelectedTheme: ApplicationTheme
   readonly initiallySelectedTabSize: number
   readonly showRepositoriesSidebar: boolean
+  readonly useSystemMenuBar: boolean
   readonly alwaysShowWorktreeList: boolean
 
   readonly isLoadingGitConfig: boolean
@@ -300,6 +305,7 @@ export class Preferences extends React.Component<
       initiallySelectedTabSize: this.props.selectedTabSize,
       alwaysShowWorktreeList: this.props.alwaysShowWorktreeList,
       showRepositoriesSidebar: getShowRepositoriesSidebar(),
+      useSystemMenuBar: getUseSystemMenuBar(),
       isLoadingGitConfig: true,
       underlineLinks: this.props.underlineLinks,
       showDiffCheckMarks: this.props.showDiffCheckMarks,
@@ -773,6 +779,8 @@ export class Preferences extends React.Component<
             onShowRepositoriesSidebarChanged={
               this.onShowRepositoriesSidebarChanged
             }
+            useSystemMenuBar={this.state.useSystemMenuBar}
+            onUseSystemMenuBarChanged={this.onUseSystemMenuBarChanged}
             selectedDateFormat={
               this.state.selectedDateFormat ?? getDateFormatPreference()
             }
@@ -1149,6 +1157,10 @@ export class Preferences extends React.Component<
     this.setState({ alwaysShowWorktreeList })
   }
 
+  private onUseSystemMenuBarChanged = (useSystemMenuBar: boolean) => {
+    this.setState({ useSystemMenuBar })
+  }
+
   private onShowRepositoriesSidebarChanged = (
     showRepositoriesSidebar: boolean
   ) => {
@@ -1344,6 +1356,7 @@ export class Preferences extends React.Component<
     dispatcher.setDiffCheckMarksSetting(this.state.showDiffCheckMarks)
     dispatcher.setAlwaysShowWorktreeList(this.state.alwaysShowWorktreeList)
     setShowRepositoriesSidebar(this.state.showRepositoriesSidebar)
+    setUseSystemMenuBar(this.state.useSystemMenuBar)
 
     dispatcher.setSelectedCopilotModelsByAccount(
       this.state.selectedCopilotModelsByAccount

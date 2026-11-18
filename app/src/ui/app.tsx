@@ -18,6 +18,11 @@ import { updateStore, UpdateStatus } from './lib/update-store'
 import { RetryAction } from '../models/retry-actions'
 import { FetchType } from '../models/fetch'
 import { shouldRenderApplicationMenu } from './lib/features'
+import {
+  applySystemMenuBarSetting,
+  getUseSystemMenuBar,
+  onUseSystemMenuBarChanged,
+} from '../lib/linux-menu-bar'
 import { matchExistingRepository } from '../lib/repository-matching'
 import { getVersion, getName } from './lib/app-proxy'
 import { getOS, isOSNoLongerSupportedByElectron } from '../lib/get-os'
@@ -285,6 +290,7 @@ export class App extends React.Component<IAppProps, IAppState> {
   /** Re-renders when the custom build's update status changes. */
   private customUpdateSubscription: { dispose(): void } | null = null
   private sidebarSettingSubscription: { dispose(): void } | null = null
+  private menuBarSettingSubscription: { dispose(): void } | null = null
   /** Preferences → Appearance → Show repositories sidebar. */
   private showRepositoriesSidebar = getShowRepositoriesSidebar()
 
@@ -398,6 +404,7 @@ export class App extends React.Component<IAppProps, IAppState> {
     window.clearInterval(this.updateIntervalHandle)
     this.customUpdateSubscription?.dispose()
     this.sidebarSettingSubscription?.dispose()
+    this.menuBarSettingSubscription?.dispose()
 
     if (__DARWIN__) {
       window.removeEventListener('keydown', this.onMacOSWindowKeyDown)
@@ -1095,6 +1102,10 @@ export class App extends React.Component<IAppProps, IAppState> {
     this.customUpdateSubscription = customUpdateStore.onDidUpdate(() =>
       this.forceUpdate()
     )
+    this.menuBarSettingSubscription = onUseSystemMenuBarChanged(() =>
+      this.forceUpdate()
+    )
+    applySystemMenuBarSetting()
     this.sidebarSettingSubscription = onCustomGroupsChanged(() => {
       const show = getShowRepositoriesSidebar()
       if (show !== this.showRepositoriesSidebar) {
@@ -1447,8 +1458,9 @@ export class App extends React.Component<IAppProps, IAppState> {
    * on Windows.
    */
   private renderAppMenuBar() {
-    // We only render the app menu bar on Windows
-    if (!__WIN32__) {
+    // Windows always uses the in-app menu bar; Linux does unless you chose
+    // the system one (which ignores the dark theme).
+    if (!__WIN32__ && !(__LINUX__ && !getUseSystemMenuBar())) {
       return null
     }
 
@@ -1499,10 +1511,27 @@ export class App extends React.Component<IAppProps, IAppState> {
       this.state.currentFoldout &&
       this.state.currentFoldout.type === FoldoutType.AppMenu
 
-    // As Linux still uses the classic Electron menu, we are opting out of the
-    // custom menu that is shown as part of the title bar below
+    // On Linux the window manager draws the title bar; we only add a bar for
+    // the in-app menu, unless the system menu bar is in use or there's no
+    // menu to show (welcome flow, full screen).
     if (__LINUX__) {
-      return null
+      if (
+        getUseSystemMenuBar() ||
+        this.state.showWelcomeFlow ||
+        (inFullScreen && !menuBarActive)
+      ) {
+        return null
+      }
+      return (
+        <TitleBar
+          showAppIcon={false}
+          titleBarStyle="dark"
+          windowState={this.state.windowState}
+          windowZoomFactor={this.state.windowZoomFactor}
+        >
+          {this.renderAppMenuBar()}
+        </TitleBar>
+      )
     }
 
     // When we're in full-screen mode on Windows we only need to render

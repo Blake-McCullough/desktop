@@ -307,6 +307,12 @@ export function onShowInstallingUpdate(eventHandler: () => void) {
 /** Tell the main process to set the native theme source */
 export const setNativeThemeSource = sendProxy('set-native-theme-source', 1)
 
+/** Linux: show the system menu bar, or hide it for the in-app one. */
+export const setNativeMenuBarVisible = sendProxy(
+  'set-native-menu-bar-visible',
+  1
+)
+
 /** Tell the main process to obtain wether the native theme uses dark colors */
 export const shouldUseDarkColors = invokeProxy('should-use-dark-colors', 0)
 
