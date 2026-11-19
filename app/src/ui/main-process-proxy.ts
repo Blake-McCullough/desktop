@@ -221,6 +221,9 @@ export const showSaveDialogForWindow = invokeProxy(
 /** Pause menu shortcuts (while recording a new one) or resume them. */
 export const setIgnoreMenuShortcuts = sendProxy('set-ignore-menu-shortcuts', 1)
 
+/** Versions, platform and recent log lines for Copy debug info. */
+export const getDebugInfo = invokeProxy('get-debug-info', 0)
+
 /** The menu items whose shortcuts can be changed in Preferences. */
 export const getMenuShortcuts = invokeProxy('get-menu-shortcuts', 0)
 

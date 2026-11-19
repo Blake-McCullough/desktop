@@ -9,6 +9,7 @@ import { MenuIDs } from '../models/menu-ids'
 import { ISerializableMenuItem } from './menu-item'
 import { MenuLabelsEvent } from '../models/menu-labels'
 import { IMenuShortcut } from '../models/shortcuts'
+import { IMainProcessDebugInfo } from './debug-info'
 import { MenuEvent } from '../main-process/menu'
 import { LogLevel } from './logging/log-level'
 import { ICrashDetails } from '../crash/shared'
@@ -128,6 +129,8 @@ export type RequestResponseChannels = {
   'show-save-dialog-for-window': (
     options: Electron.SaveDialogOptions
   ) => Promise<string | null>
+  /** Versions, platform and recent log lines for Copy debug info. */
+  'get-debug-info': () => Promise<IMainProcessDebugInfo>
   /** The menu items whose shortcuts can be changed, with their defaults. */
   'get-menu-shortcuts': () => Promise<ReadonlyArray<IMenuShortcut>>
   /** Download and install a custom build release, then restart. */

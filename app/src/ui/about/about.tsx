@@ -57,6 +57,8 @@ interface IAboutProps {
   readonly onInstallUpdate: () => void
   /** Show the newer release's notes and install options. */
   readonly onShowUpdateDetails: () => void
+  /** Help → Copy debug info. */
+  readonly onShowDebugInfo?: () => void
 
   /**
    * A flag to indicate whether the About dialog should ignore that
@@ -108,10 +110,7 @@ export class About extends React.Component<IAboutProps> {
     if (lastCheck?.isUpdateAvailable && lastCheck.latest !== null) {
       return (
         <Row className="update-buttons">
-          <Button
-            onClick={this.props.onInstallUpdate}
-            disabled={isInstalling}
-          >
+          <Button onClick={this.props.onInstallUpdate} disabled={isInstalling}>
             {isInstalling ? 'Updating…' : 'Update now'}
           </Button>
           <Button onClick={this.props.onShowUpdateDetails}>
@@ -259,6 +258,14 @@ export class About extends React.Component<IAboutProps> {
             <LinkButton uri={CustomLinks.repository}>
               This project on GitHub
             </LinkButton>
+            {this.props.onShowDebugInfo !== undefined && (
+              <>
+                {' · '}
+                <LinkButton onClick={this.props.onShowDebugInfo}>
+                  Copy debug info
+                </LinkButton>
+              </>
+            )}
           </p>
           {this.renderUpdateDetails()}
           {this.renderUpdateButton()}

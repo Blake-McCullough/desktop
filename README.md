@@ -305,6 +305,11 @@ for feature rollouts. It only talks to the services you use: GitHub or
 GitLab for your repositories, GitHub for sign-in and Copilot if you use
 them, and this repository's releases for update checks.
 
+To report a bug, **Help → Copy debug info** shows your app and OS
+versions, a few relevant settings and the end of the log, with tokens,
+passwords and your home folder path removed, so you can check it and
+paste it into an issue. Nothing is sent anywhere.
+
 ## Credits and licence
 
 Based on [GitHub Desktop](https://github.com/desktop/desktop) by GitHub,

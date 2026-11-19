@@ -21,6 +21,7 @@ export type MenuEvent =
   | 'show-preferences'
   | 'choose-repository'
   | 'show-quick-switcher'
+  | 'show-debug-info'
   | 'open-working-directory'
   | 'update-branch-with-contribution-target-branch'
   | 'compare-to-branch'

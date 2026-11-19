@@ -17,6 +17,7 @@ import * as Fs from 'fs'
 
 import { AppWindow } from './app-window'
 import { checkForCustomUpdate, installCustomUpdate } from './custom-updater'
+import { getMainProcessDebugInfo } from './debug-info'
 import { showPipelineWindow } from './pipeline-window'
 import { parsePipelineWindowRequest } from '../lib/pipeline-window-shared'
 import {
@@ -787,6 +788,8 @@ app.on('ready', () => {
       event.sender.setIgnoreMenuShortcuts(ignore === true)
     }
   })
+
+  ipcMain.handle('get-debug-info', async () => getMainProcessDebugInfo())
 
   ipcMain.handle('get-menu-shortcuts', async () => {
     const template = buildDefaultMenuTemplate({

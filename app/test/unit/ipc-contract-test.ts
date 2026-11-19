@@ -94,6 +94,7 @@ describe('IPC channel contract', () => {
     'custom-update-install',
     'show-save-dialog-for-window',
     'get-menu-shortcuts',
+    'get-debug-info',
     'open-external',
     'is-in-application-folder',
     'move-to-applications-folder',

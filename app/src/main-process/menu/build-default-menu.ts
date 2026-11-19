@@ -619,6 +619,12 @@ export function buildDefaultMenuTemplate({
     click: emit('check-for-custom-updates'),
   }
 
+  const debugInfoItem: Electron.MenuItemConstructorOptions = {
+    label: __DARWIN__ ? 'Copy Debug Info…' : 'Copy &debug info…',
+    id: 'show-debug-info',
+    click: emit('show-debug-info'),
+  }
+
   const helpItems = [
     checkForUpdatesItem,
     separator,
@@ -627,6 +633,7 @@ export function buildDefaultMenuTemplate({
     showUserGuides,
     showKeyboardShortcuts,
     showLogsItem,
+    debugInfoItem,
   ]
 
   helpItems.push(...buildTestMenu())

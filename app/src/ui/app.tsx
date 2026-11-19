@@ -154,6 +154,7 @@ import { ImportRepositoriesDialog } from './repositories-list/import-repositorie
 import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
 import { MoveRepositoriesDialog } from './repositories-list/move-repositories-dialog'
 import { QuickSwitcher } from './quick-switcher/quick-switcher'
+import { DebugInfoDialog } from './debug-info/debug-info-dialog'
 import { MergeRequestButton } from './merge-requests/merge-request-button'
 import { getQuickSwitcherAccelerator } from '../lib/shortcut-settings'
 import { ExportRepositoriesDialog } from './repositories-list/export-repositories-dialog'
@@ -491,6 +492,8 @@ export class App extends React.Component<IAppProps, IAppState> {
         return this.chooseRepository()
       case 'show-quick-switcher':
         return this.showQuickSwitcher()
+      case 'show-debug-info':
+        return this.props.dispatcher.showPopup({ type: PopupType.DebugInfo })
       case 'add-local-repository':
         return this.showAddLocalRepo()
       case 'create-branch':
@@ -2071,6 +2074,7 @@ export class App extends React.Component<IAppProps, IAppState> {
             onCheckForUpdates={this.onAboutCheckForUpdates}
             onInstallUpdate={this.onCustomUpdateNow}
             onShowUpdateDetails={this.onCustomUpdateDetails}
+            onShowDebugInfo={this.onShowDebugInfo}
           />
         )
       case PopupType.PublishRepository:
@@ -2718,6 +2722,15 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       }
+      case PopupType.DebugInfo:
+        return (
+          <DebugInfoDialog
+            key="debug-info"
+            repositories={this.state.repositories}
+            theme={this.state.selectedTheme}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
       case PopupType.QuickSwitcher: {
         const selected = this.state.selectedState
         const repoState =
@@ -4251,6 +4264,10 @@ export class App extends React.Component<IAppProps, IAppState> {
       type: PopupType.CustomUpdate,
       installImmediately: true,
     })
+  }
+
+  private onShowDebugInfo = () => {
+    this.props.dispatcher.showPopup({ type: PopupType.DebugInfo })
   }
 
   private onAboutCheckForUpdates = () => {

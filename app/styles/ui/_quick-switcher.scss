@@ -181,3 +181,23 @@ dialog#quick-switcher {
     padding: 0 var(--spacing-half);
   }
 }
+
+// Help → Copy debug info.
+dialog#debug-info {
+  width: 640px;
+
+  .debug-info-text {
+    width: 100%;
+    height: 320px;
+    box-sizing: border-box;
+    resize: vertical;
+    font-family: var(--font-family-monospace);
+    font-size: var(--font-size-sm);
+    white-space: pre;
+    user-select: text;
+  }
+
+  .debug-info-error {
+    color: var(--error-color);
+  }
+}

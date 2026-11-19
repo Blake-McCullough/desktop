@@ -136,6 +136,7 @@ export enum PopupType {
   CustomUpdate = 'CustomUpdate',
   MoveRepositories = 'MoveRepositories',
   QuickSwitcher = 'QuickSwitcher',
+  DebugInfo = 'DebugInfo',
   ExportRepositories = 'ExportRepositories',
 }
 
@@ -628,6 +629,9 @@ export type PopupDetail =
     }
   | {
       type: PopupType.QuickSwitcher
+    }
+  | {
+      type: PopupType.DebugInfo
     }
   | {
       type: PopupType.MoveRepositories
