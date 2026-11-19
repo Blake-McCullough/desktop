@@ -431,6 +431,37 @@ export async function gitLabProjectRequest<T>(
 }
 
 /**
+ * Run a GitLab GraphQL query (same rate limiting, retries and errors as the
+ * REST calls). Throws if GitLab reports errors for the query.
+ */
+export async function gitLabGraphQL<T>(
+  project: Pick<IGitLabProject, 'webBaseUrl'>,
+  query: string,
+  variables: Record<string, unknown>,
+  token: string
+): Promise<T> {
+  const { body } = await gitLabRequestWithHeaders<{
+    readonly data?: T
+    readonly errors?: ReadonlyArray<{ readonly message?: string }>
+  }>(`${project.webBaseUrl}/api/graphql`, token, 'POST', 'json', {
+    query,
+    variables,
+  })
+  if (body?.errors !== undefined && body.errors.length > 0) {
+    throw new GitLabApiError(
+      `GitLab GraphQL error: ${body.errors
+        .map(e => e.message ?? 'unknown')
+        .join('; ')}`,
+      200
+    )
+  }
+  if (body?.data === undefined) {
+    throw new GitLabApiError('GitLab GraphQL returned no data', 200)
+  }
+  return body.data
+}
+
+/**
  * Make a request to the GitLab API and parse the JSON body.
  *
  * Throws a `GitLabApiError` for non-2xx responses (after retrying transient
@@ -451,7 +482,9 @@ async function gitLabRequestWithHeaders<T>(
   token: string,
   method: 'GET' | 'POST' = 'GET',
   /** `json` (default) parses the body, `text` returns it, `raw` leaves it unread. */
-  kind: 'json' | 'text' | 'raw' = 'json'
+  kind: 'json' | 'text' | 'raw' = 'json',
+  /** A JSON request body (POST only). */
+  jsonBody?: unknown
 ): Promise<{ readonly body: T; readonly headers: Headers }> {
   const budget = getBudget(originOf(url))
   let lastError: GitLabApiError | null = null
@@ -481,7 +514,11 @@ async function gitLabRequestWithHeaders<T>(
             headers: {
               'PRIVATE-TOKEN': token,
               Accept: kind === 'json' ? 'application/json' : '*/*',
+              ...(jsonBody !== undefined
+                ? { 'Content-Type': 'application/json' }
+                : {}),
             },
+            body: jsonBody !== undefined ? JSON.stringify(jsonBody) : undefined,
             signal: controller.signal,
             cache: 'no-store',
           })

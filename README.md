@@ -120,6 +120,11 @@ listed.
   a **▶ Run** button. Right after a push, the sidebar waits for that commit's
   pipeline rather than showing an older one.
 - **History**: a dot per job for every commit; click to open the pipeline.
+- **Pipeline graph**: the pipeline window opens on a graph of its jobs,
+  like GitHub Actions' run graph: each job is a card with its status and
+  time, connected to the jobs it `needs:` (or to the stage before, for
+  pipelines without `needs:`). Click a card for its log, or ▶ to run a
+  manual job.
 - **Pipeline window**: the pipeline's jobs by stage and each job's log, with
   colours and collapsible sections like GitLab's own job page. A running
   job's log follows new output live. Run manual jobs, retry or cancel jobs or

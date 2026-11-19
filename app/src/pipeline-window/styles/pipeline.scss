@@ -136,7 +136,7 @@ $status-colors: (
   red: #cf222e,
   blue: #0969da,
   yellow: #9a6700,
-  gray: #6e7781,
+  grey: #6e7781,
   purple: #8250df,
 );
 
@@ -390,5 +390,235 @@ $status-colors: (
 
   &:hover:not(:disabled) {
     background: #0860ca;
+  }
+}
+
+/* ------------------------------ view switch ------------------------------ */
+
+.pipeline-view-switch {
+  display: flex;
+  gap: 2px;
+  padding: 0 var(--spacing-double);
+  border-bottom: var(--base-border);
+
+  button {
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    padding: 8px 12px 6px;
+    color: var(--text-secondary-color);
+
+    &:hover:not(:disabled) {
+      background: transparent;
+      color: var(--text-color);
+    }
+
+    &.selected {
+      color: var(--text-color);
+      font-weight: 600;
+      border-bottom-color: var(--tab-bar-active-color, #fd8c73);
+    }
+  }
+}
+
+/* -------------------------------- graph ---------------------------------- */
+
+.pipeline-body.graph {
+  overflow: auto;
+}
+
+.pipeline-graph {
+  padding: var(--spacing-double) 0;
+
+  &.empty {
+    padding: var(--spacing-double);
+    color: var(--text-secondary-color);
+  }
+}
+
+.pipeline-graph-hint {
+  margin: 0 var(--spacing-double) var(--spacing);
+  color: var(--text-secondary-color);
+  font-size: var(--font-size-sm);
+}
+
+.pipeline-graph-canvas {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.pipeline-graph-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+
+  .graph-edge {
+    fill: none;
+    stroke: var(--text-secondary-color);
+    stroke-opacity: 0.45;
+    stroke-width: 2;
+
+    &.selected {
+      stroke-opacity: 1;
+    }
+  }
+
+  .graph-port {
+    fill: var(--text-secondary-color);
+    stroke: var(--background-color);
+    stroke-width: 2;
+  }
+}
+
+.graph-stage-label {
+  position: absolute;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-job {
+  position: absolute;
+  height: 40px;
+  display: flex;
+  align-items: stretch;
+  box-sizing: border-box;
+  border: var(--base-border);
+  border-radius: 6px;
+  background: var(--box-alt-background-color);
+  overflow: hidden;
+
+  &:hover {
+    border-color: var(--text-secondary-color);
+  }
+
+  &.selected {
+    border-color: var(--status);
+    box-shadow: 0 0 0 1px var(--status);
+  }
+
+  .graph-job-open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    text-align: left;
+
+    &:hover:not(:disabled) {
+      background: transparent;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--focus-color);
+      outline-offset: -2px;
+    }
+  }
+
+  .graph-job-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .graph-job-duration {
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .graph-job-run {
+    border: none;
+    border-left: var(--base-border);
+    border-radius: 0;
+    padding: 0 12px;
+    color: var(--status-success-color, #1a7f37);
+    background: transparent;
+  }
+}
+
+/* The round status icon: a tick, cross, spinner, play or dot. */
+.graph-job-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--status);
+
+  &::after {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--background-color);
+  }
+}
+
+.status-name-success .graph-job-icon::after {
+  content: '✓';
+}
+
+.status-name-failed .graph-job-icon::after {
+  content: '✕';
+}
+
+.status-name-manual .graph-job-icon::after {
+  content: '▶';
+  font-size: 7px;
+  padding-left: 1px;
+}
+
+.status-name-canceled .graph-job-icon::after {
+  content: '⊘';
+  font-size: 12px;
+}
+
+.status-name-skipped .graph-job-icon::after {
+  content: '»';
+}
+
+/* Waiting: a hollow ring. */
+.status-name-created,
+.status-name-pending,
+.status-name-preparing,
+.status-name-scheduled,
+.status-name-waiting_for_resource {
+  .graph-job-icon {
+    background: transparent;
+    border: 2px solid var(--status);
+    box-sizing: border-box;
+  }
+}
+
+/* Running: a spinning ring. */
+.status-name-running .graph-job-icon {
+  background: transparent;
+  border: 2px solid var(--status);
+  border-right-color: transparent;
+  box-sizing: border-box;
+  animation: graph-spin 0.9s linear infinite;
+}
+
+@keyframes graph-spin {
+  to {
+    transform: rotate(360deg);
   }
 }

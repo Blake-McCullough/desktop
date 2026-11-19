@@ -1,4 +1,8 @@
-import { IGitLabProject, gitLabProjectRequest } from './gitlab-api'
+import {
+  IGitLabProject,
+  gitLabGraphQL,
+  gitLabProjectRequest,
+} from './gitlab-api'
 
 /** A pipeline, as shown in the pipeline window. */
 export interface IPipelineDetails {
@@ -261,4 +265,107 @@ export function formatDuration(seconds: number | null): string {
     return `${m}m ${String(sec).padStart(2, '0')}s`
   }
   return `${sec}s`
+}
+
+/** Which jobs each job waits for, from GitLab's GraphQL API. */
+export interface IPipelineNeeds {
+  /** Stage names in pipeline order. */
+  readonly stages: ReadonlyArray<string>
+  /**
+   * Job name → the job names it `needs`, or `null` when it simply waits for
+   * the stage before it (no `needs:` keyword).
+   */
+  readonly needs: ReadonlyMap<string, ReadonlyArray<string> | null>
+}
+
+const PipelineNeedsQuery = `
+query PipelineNeeds($fullPath: ID!, $iid: ID!, $after: String) {
+  project(fullPath: $fullPath) {
+    pipeline(iid: $iid) {
+      stages { nodes { name } }
+      jobs(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          name
+          schedulingType
+          needs { nodes { name } }
+        }
+      }
+    }
+  }
+}`
+
+interface IGraphQLPipelineNeeds {
+  readonly project: {
+    readonly pipeline: {
+      readonly stages?: {
+        readonly nodes: ReadonlyArray<{ readonly name: string } | null>
+      } | null
+      readonly jobs: {
+        readonly pageInfo: {
+          readonly hasNextPage: boolean
+          readonly endCursor: string | null
+        }
+        readonly nodes: ReadonlyArray<{
+          readonly name: string
+          readonly schedulingType?: string | null
+          readonly needs?: {
+            readonly nodes: ReadonlyArray<{ readonly name: string } | null>
+          } | null
+        } | null>
+      } | null
+    } | null
+  } | null
+}
+
+/** At most this many pages of 100 jobs. */
+const MaxNeedsPages = 10
+
+/**
+ * Fetch the pipeline's job dependencies (the REST API doesn't have them).
+ * Returns `null` when GitLab can't tell us, e.g. an old version without
+ * the GraphQL fields; the graph then falls back to stage order.
+ */
+export async function fetchPipelineNeeds(
+  project: IGitLabProject,
+  pipelineIid: number,
+  token: string
+): Promise<IPipelineNeeds | null> {
+  const needs = new Map<string, ReadonlyArray<string> | null>()
+  let stages: ReadonlyArray<string> = []
+  let after: string | null = null
+
+  for (let page = 0; page < MaxNeedsPages; page++) {
+    const data: IGraphQLPipelineNeeds = await gitLabGraphQL(
+      project,
+      PipelineNeedsQuery,
+      { fullPath: project.projectPath, iid: String(pipelineIid), after },
+      token
+    )
+    const pipeline = data.project?.pipeline
+    if (pipeline === null || pipeline === undefined || !pipeline.jobs) {
+      return null
+    }
+    if (page === 0) {
+      stages = (pipeline.stages?.nodes ?? [])
+        .map(s => s?.name)
+        .filter((n): n is string => typeof n === 'string')
+    }
+    for (const job of pipeline.jobs.nodes) {
+      if (job === null) {
+        continue
+      }
+      const names = (job.needs?.nodes ?? [])
+        .map(n => n?.name)
+        .filter((n): n is string => typeof n === 'string')
+      needs.set(job.name, job.schedulingType === 'dag' ? names : null)
+    }
+    const { hasNextPage, endCursor } = pipeline.jobs.pageInfo
+    if (!hasNextPage || endCursor === null) {
+      break
+    }
+    after = endCursor
+  }
+
+  return { stages, needs }
 }

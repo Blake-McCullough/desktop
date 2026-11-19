@@ -16,11 +16,13 @@ import { getGitLabToken } from '../lib/gitlab/gitlab-token'
 import {
   IJobDetails,
   IPipelineDetails,
+  IPipelineNeeds,
   JobAction,
   fetchJobArtifactsArchive,
   fetchJobLog,
   fetchPipelineDetails,
   fetchPipelineJobDetails,
+  fetchPipelineNeeds,
   formatDuration,
   getJobActions,
   runJobAction,
@@ -28,6 +30,7 @@ import {
 } from '../lib/gitlab/pipeline-details'
 import { IParsedLog, parseJobLog } from '../lib/gitlab/job-log'
 import { JobLogView } from './job-log-view'
+import { PipelineGraphView } from './pipeline-graph-view'
 import { openExternal, showSaveDialogForWindow } from '../ui/main-process-proxy'
 
 interface IPipelineAppProps {
@@ -46,6 +49,21 @@ interface IPipelineAppState {
   /** Keys of actions in progress, e.g. `job:123:retry`. */
   readonly busy: ReadonlySet<string>
   readonly lastUpdated: number | null
+  /** The graph of jobs, or the job list with the selected job's log. */
+  readonly view: PipelineView
+  /** Which jobs need which (from GraphQL); null until known or if unavailable. */
+  readonly needs: IPipelineNeeds | null
+}
+
+type PipelineView = 'graph' | 'jobs'
+const ViewKey = 'pipeline-window/view'
+
+function getStoredView(): PipelineView {
+  try {
+    return localStorage.getItem(ViewKey) === 'jobs' ? 'jobs' : 'graph'
+  } catch {
+    return 'graph'
+  }
 }
 
 /** How often to refresh while something is running, and when idle. */
@@ -119,6 +137,8 @@ export class PipelineApp extends React.Component<
   private unmounted = false
   private readonly selectHandlers = new Map<number, () => void>()
   private readonly actionHandlers = new Map<string, () => void>()
+  /** Pipeline iid whose needs we last asked for, so we ask once. */
+  private needsRequestedFor: string | null = null
 
   public constructor(props: IPipelineAppProps) {
     super(props)
@@ -134,6 +154,9 @@ export class PipelineApp extends React.Component<
       notice: null,
       busy: new Set(),
       lastUpdated: null,
+      // Opened from a job's dot: show that job. Otherwise the last view used.
+      view: props.request.jobId !== null ? 'jobs' : getStoredView(),
+      needs: null,
     }
   }
 
@@ -163,6 +186,72 @@ export class PipelineApp extends React.Component<
       this.logTimer = null
     }
   }
+
+  /**
+   * Fetch which jobs need which, for the graph. Once per pipeline, and again
+   * if new job names turn up (e.g. jobs added by a retry or a child).
+   */
+  private async refreshNeeds(
+    pipeline: IPipelineDetails,
+    jobs: ReadonlyArray<IJobDetails>
+  ) {
+    if (pipeline.iid === null) {
+      return
+    }
+    const known = this.state.needs?.needs
+    const key = `${pipeline.iid}:${
+      known === undefined ? '' : jobs.filter(j => !known.has(j.name)).length
+    }`
+    if (
+      this.needsRequestedFor === key ||
+      (known !== undefined && jobs.every(j => known.has(j.name)))
+    ) {
+      return
+    }
+    this.needsRequestedFor = key
+    try {
+      const token = await this.getToken()
+      const needs = await fetchPipelineNeeds(this.project, pipeline.iid, token)
+      if (!this.unmounted && needs !== null) {
+        this.setState({ needs })
+      }
+    } catch (e) {
+      // The graph falls back to stage order.
+      log.warn('Could not load job needs for the pipeline graph', e)
+    }
+  }
+
+  private onShowGraph = () => this.setView('graph', true)
+  private onShowJobs = () => this.setView('jobs', true)
+
+  /** `remember`: the view you picked becomes the default for new windows. */
+  private setView(view: PipelineView, remember: boolean) {
+    this.setState({ view }, () => {
+      if (view === 'jobs') {
+        this.refreshLog()
+      }
+    })
+    if (remember) {
+      try {
+        localStorage.setItem(ViewKey, view)
+      } catch {
+        // Not important.
+      }
+    }
+  }
+
+  /** From the graph: open a job's log. */
+  private onOpenJobFromGraph = (jobId: number) => {
+    this.selectJob(jobId)
+    this.setView('jobs', false)
+  }
+
+  private onRunJobFromGraph = (job: IJobDetails) => {
+    this.jobAction(job, 'play')
+  }
+
+  private isJobRunning = (jobId: number) =>
+    this.state.busy.has(`job:${jobId}:play`)
 
   private onVisibilityChange = () => {
     if (!document.hidden) {
@@ -251,6 +340,7 @@ export class PipelineApp extends React.Component<
           }
         }
       )
+      this.refreshNeeds(pipeline, jobs)
       document.title = `Pipeline #${pipeline.id} · ${formatStatus(
         pipeline.status
       )} — ${this.props.request.repositoryName}`
@@ -278,7 +368,8 @@ export class PipelineApp extends React.Component<
       this.logTimer = null
     }
     const job = this.selectedJob
-    if (job === null) {
+    // The graph doesn't show logs; fetch it when you switch to the jobs.
+    if (job === null || this.state.view === 'graph') {
       return
     }
 
@@ -487,10 +578,50 @@ export class PipelineApp extends React.Component<
             {this.state.error ?? this.state.notice}
           </div>
         )}
-        <div className="pipeline-body">
-          {this.renderJobs()}
-          {this.renderJob()}
-        </div>
+        {this.renderViewSwitch()}
+        {this.state.view === 'graph' ? (
+          <div className="pipeline-body graph">
+            <PipelineGraphView
+              jobs={this.state.jobs}
+              needs={this.state.needs}
+              selectedJobId={this.state.selectedJobId}
+              onOpenJob={this.onOpenJobFromGraph}
+              onRunJob={this.onRunJobFromGraph}
+              isRunning={this.isJobRunning}
+            />
+          </div>
+        ) : (
+          <div className="pipeline-body">
+            {this.renderJobs()}
+            {this.renderJob()}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  private renderViewSwitch() {
+    const { view } = this.state
+    return (
+      <div className="pipeline-view-switch" role="tablist" aria-label="View">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'graph'}
+          className={view === 'graph' ? 'selected' : undefined}
+          onClick={this.onShowGraph}
+        >
+          Graph
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'jobs'}
+          className={view === 'jobs' ? 'selected' : undefined}
+          onClick={this.onShowJobs}
+        >
+          Jobs and logs
+        </button>
       </div>
     )
   }
@@ -530,8 +661,7 @@ export class PipelineApp extends React.Component<
             {active && <span className="live-dot">Live</span>}
             {this.state.lastUpdated !== null && (
               <span>
-                Updated{' '}
-                {new Date(this.state.lastUpdated).toLocaleTimeString()}
+                Updated {new Date(this.state.lastUpdated).toLocaleTimeString()}
               </span>
             )}
           </div>
