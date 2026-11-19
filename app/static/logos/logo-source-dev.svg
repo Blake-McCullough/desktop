@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Hexagon containing a git fork with a passing node (development build)">
+<defs><linearGradient id="gC" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FBBF24"/><stop offset="1" stop-color="#F97316"/></linearGradient></defs>
+<rect width="512" height="512" rx="112" fill="#1C1408"/>
+<polygon points="256,80 408,168 408,344 256,432 104,344 104,168" fill="none" stroke="url(#gC)" stroke-width="24" stroke-linejoin="round"/>
+<g fill="none" stroke="#F5F7FF" stroke-width="20" stroke-linecap="round">
+<path d="M256 352V300C256 260 196 264 196 214"/>
+<path d="M256 300C256 260 316 264 316 214"/>
+</g>
+<circle cx="256" cy="352" r="26" fill="#F5F7FF"/>
+<circle cx="196" cy="196" r="26" fill="#F5F7FF"/>
+<circle cx="316" cy="196" r="26" fill="#FBBF24"/>
+</svg>

@@ -1,8 +1,8 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "display-p3:0.96863,0.76471,0.07451,1.00000",
-      "srgb:0.91373,0.70980,0.00000,1.00000"
+      "display-p3:0.22745,0.16471,0.03922,1.00000",
+      "srgb:0.10980,0.07843,0.03137,1.00000"
     ],
     "orientation" : {
       "start" : {
@@ -43,7 +43,7 @@
             }
           ],
           "image-name" : "1 – Layer 3.svg",
-          "name" : "octocat"
+          "name" : "hex-fork"
         }
       ],
       "name" : "foreground",

@@ -1,3 +1,5 @@
+<p align="center"><img src="app/static/logos/logo-source.svg" alt="" width="96" /></p>
+
 # GitHub Desktop Custom GitLab CI
 
 A customised build of [GitHub Desktop](https://github.com/desktop/desktop)

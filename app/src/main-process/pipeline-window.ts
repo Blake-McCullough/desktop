@@ -1,4 +1,5 @@
 import { BrowserWindow, nativeTheme } from 'electron'
+import * as path from 'path'
 import {
   IPipelineWindowRequest,
   pipelineWindowKey,
@@ -40,6 +41,10 @@ export function showPipelineWindow(request: IPipelineWindowRequest) {
     title: `Pipeline #${request.pipelineId} — ${request.repositoryName}`,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#24292e' : '#ffffff',
     autoHideMenuBar: true,
+    // Windows and macOS take the icon from the app; Linux needs it set.
+    ...(__LINUX__
+      ? { icon: path.join(__dirname, 'static', 'icon-logo.png') }
+      : {}),
     webPreferences: {
       disableBlinkFeatures: 'Auxclick',
       nodeIntegration: true,
