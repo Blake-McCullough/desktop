@@ -289,7 +289,27 @@ $status-colors: (
   font-family: var(--font-family-monospace);
   font-size: 12px;
   line-height: 1.5;
-  user-select: text;
+
+  // The app turns selection off everywhere; the log's text is selectable
+  // (line numbers, fold carets and timings stay out of copies).
+  &,
+  * {
+    user-select: text;
+    cursor: text;
+  }
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--focus-color);
+    outline-offset: -2px;
+  }
+
+  ::selection {
+    background: rgba(56, 139, 253, 0.4);
+  }
 
   &.empty {
     display: flex;
@@ -311,15 +331,7 @@ $status-colors: (
   }
 
   &.section-header {
-    width: 100%;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
     cursor: pointer;
-    padding: 0 var(--spacing-double) 0 0;
 
     &:hover {
       background: rgba(255, 255, 255, 0.07);
@@ -333,14 +345,34 @@ $status-colors: (
   padding-right: 12px;
   text-align: right;
   color: #6e7681;
-  user-select: none;
 }
 
-.job-log-caret {
+.job-log .job-log-number,
+.job-log .job-log-caret,
+.job-log .job-log-duration,
+.job-log .job-log-notice,
+.job-log .job-log-live {
+  user-select: none;
+  cursor: default;
+}
+
+.job-log .job-log-caret {
   width: 14px;
   flex-shrink: 0;
   margin-left: -14px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: #9198a1;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: transparent;
+    color: #e6edf3;
+  }
 }
 
 .job-log-text {

@@ -28,10 +28,14 @@ import {
   runJobAction,
   runPipelineAction,
 } from '../lib/gitlab/pipeline-details'
-import { IParsedLog, parseJobLog } from '../lib/gitlab/job-log'
+import { IParsedLog, logToText, parseJobLog } from '../lib/gitlab/job-log'
 import { JobLogView } from './job-log-view'
 import { PipelineGraphView } from './pipeline-graph-view'
-import { openExternal, showSaveDialogForWindow } from '../ui/main-process-proxy'
+import {
+  openExternal,
+  showSaveDialogForWindow,
+  writeClipboardText,
+} from '../ui/main-process-proxy'
 
 interface IPipelineAppProps {
   readonly request: IPipelineWindowRequest
@@ -472,6 +476,26 @@ export class PipelineApp extends React.Component<
     }
   }
 
+  /** Copy the selected job's whole log (folded sections included). */
+  private async copyLog(job: IJobDetails) {
+    const { log } = this.state
+    if (log === null) {
+      return
+    }
+    if (!(await writeClipboardText(logToText(log)))) {
+      this.setState({ error: "Couldn't copy the log to the clipboard." })
+      return
+    }
+    const lines = log.lines.length.toLocaleString()
+    this.setState({
+      error: null,
+      notice:
+        log.truncatedLines > 0
+          ? `Copied the last ${lines} lines of ${job.name}'s log (the rest is only on GitLab).`
+          : `Copied ${job.name}'s log (${lines} lines).`,
+    })
+  }
+
   private jobAction(job: IJobDetails, action: JobAction) {
     const verb =
       action === 'play'
@@ -797,6 +821,17 @@ export class PipelineApp extends React.Component<
                 {label[action]}
               </button>
             ))}
+            <button
+              type="button"
+              disabled={
+                this.state.log === null || this.state.log.lines.length === 0
+              }
+              onClick={this.getActionHandler(`${job.id}:copy-log`, () =>
+                this.copyLog(job)
+              )}
+            >
+              Copy log
+            </button>
             {job.hasArchive && (
               <button
                 type="button"

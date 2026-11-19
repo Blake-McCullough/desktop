@@ -1,4 +1,4 @@
-import { BrowserWindow, nativeTheme } from 'electron'
+import { BrowserWindow, Menu, nativeTheme } from 'electron'
 import * as path from 'path'
 import {
   IPipelineWindowRequest,
@@ -56,6 +56,15 @@ export function showPipelineWindow(request: IPipelineWindowRequest) {
   if (!__DARWIN__) {
     window.setMenu(null)
   }
+  // Right-click: copy what's selected (e.g. part of a job log).
+  window.webContents.on('context-menu', (_, params) => {
+    if (params.selectionText.trim().length === 0) {
+      return
+    }
+    Menu.buildFromTemplate([
+      { label: __DARWIN__ ? 'Copy' : '&Copy', role: 'copy' },
+    ]).popup({ window })
+  })
   addTrustedIPCSender(window.webContents)
   windows.set(key, window)
 

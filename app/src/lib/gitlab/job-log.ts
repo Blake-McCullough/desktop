@@ -302,3 +302,11 @@ export function isLineHidden(
 export function lineText(line: ILogLine): string {
   return line.spans.map(s => s.text).join('')
 }
+
+/**
+ * The whole log as plain text: every line (folded sections included),
+ * without colours or section markers.
+ */
+export function logToText(log: IParsedLog): string {
+  return log.lines.map(lineText).join('\n')
+}

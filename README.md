@@ -127,7 +127,7 @@ listed.
   manual job.
 - **Pipeline window**: the pipeline's jobs by stage and each job's log, with
   colours and collapsible sections like GitLab's own job page. A running
-  job's log follows new output live. Run manual jobs, retry or cancel jobs or
+  job's log follows new output live. Select any part of a log to copy it, or use **Copy log** for all of it. Run manual jobs, retry or cancel jobs or
   the whole pipeline, and download artifacts without opening the browser.
 - **Notifications**: a desktop notification when the pipeline for a commit
   you pushed passes or fails, or stops at a manual job waiting for you.

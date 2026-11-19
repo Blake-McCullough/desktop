@@ -3,6 +3,7 @@ import assert from 'node:assert'
 import {
   isLineHidden,
   lineText,
+  logToText,
   parseJobLog,
 } from '../../src/lib/gitlab/job-log'
 import {
@@ -109,5 +110,17 @@ describe('pipeline details helpers', () => {
       ],
     })
     assert.equal(job.hasArchive, true)
+  })
+})
+
+describe('logToText', () => {
+  it('copies every line as plain text, folded sections included', () => {
+    const log = parseJobLog(
+      '\x1b[0Ksection_start:1:build[collapsed=true]\r\x1b[0K\x1b[32mBuilding\x1b[0m\n' +
+        'step one\n' +
+        '\x1b[0Ksection_end:2:build\r\x1b[0K\n' +
+        '\x1b[31mDone\x1b[0m'
+    )
+    assert.equal(logToText(log), 'Building\nstep one\nDone')
   })
 })

@@ -46,6 +46,7 @@ export class JobLogView extends React.Component<
 > {
   private readonly scrollRef = React.createRef<HTMLDivElement>()
   private readonly toggleHandlers = new Map<number, () => void>()
+  private readonly headerClickHandlers = new Map<number, () => void>()
 
   public constructor(props: IJobLogViewProps) {
     super(props)
@@ -54,6 +55,11 @@ export class JobLogView extends React.Component<
 
   public componentDidMount() {
     this.scrollToEndIfFollowing()
+    document.addEventListener('keydown', this.onDocumentKeyDown)
+  }
+
+  public componentWillUnmount() {
+    document.removeEventListener('keydown', this.onDocumentKeyDown)
   }
 
   public componentDidUpdate(prevProps: IJobLogViewProps) {
@@ -86,6 +92,50 @@ export class JobLogView extends React.Component<
 
   private onShowAll = () => {
     this.setState({ showAll: true })
+  }
+
+  /**
+   * Clicking a section's header line folds it, unless you were selecting
+   * text in it.
+   */
+  private getHeaderClick(id: number) {
+    let handler = this.headerClickHandlers.get(id)
+    if (handler === undefined) {
+      const toggle = this.getToggle(id)
+      handler = () => {
+        const selection = window.getSelection()
+        if (selection === null || selection.isCollapsed) {
+          toggle()
+        }
+      }
+      this.headerClickHandlers.set(id, handler)
+    }
+    return handler
+  }
+
+  /**
+   * Ctrl/Cmd+A after clicking in the log selects the log, not the whole
+   * window.
+   */
+  private onDocumentKeyDown = (event: KeyboardEvent) => {
+    const mod = __DARWIN__ ? event.metaKey : event.ctrlKey
+    if (!mod || event.altKey || event.shiftKey || event.key !== 'a') {
+      return
+    }
+    const el = this.scrollRef.current
+    const selection = window.getSelection()
+    const target = event.target
+    const inLog =
+      el !== null &&
+      ((selection?.anchorNode != null && el.contains(selection.anchorNode)) ||
+        (target instanceof Node && el.contains(target)))
+    if (inLog && el !== null && selection !== null) {
+      event.preventDefault()
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      selection.removeAllRanges()
+      selection.addRange(range)
+    }
   }
 
   private getToggle(id: number) {
@@ -194,25 +244,34 @@ export class JobLogView extends React.Component<
     if (line.startsSection !== null) {
       const section = log.sections.get(line.startsSection)
       const isCollapsed = collapsed.has(line.startsSection)
+      // A plain line (so its text can be selected) with a fold button; the
+      // caret button is the keyboard-accessible way to fold.
       return (
-        <button
-          type="button"
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div
           key={line.number}
           className="job-log-line section-header"
-          onClick={this.getToggle(line.startsSection)}
-          aria-expanded={!isCollapsed}
+          onClick={this.getHeaderClick(line.startsSection)}
         >
           <span className="job-log-number">{line.number}</span>
-          <span className="job-log-caret" aria-hidden={true}>
+          <button
+            type="button"
+            className="job-log-caret"
+            onClick={this.getToggle(line.startsSection)}
+            aria-expanded={!isCollapsed}
+            aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${
+              section?.name ?? 'section'
+            }`}
+          >
             {isCollapsed ? '▸' : '▾'}
-          </span>
+          </button>
           <span className="job-log-text">{content}</span>
           {section?.duration != null && (
             <span className="job-log-duration">
               {formatDuration(section.duration)}
             </span>
           )}
-        </button>
+        </div>
       )
     }
 
