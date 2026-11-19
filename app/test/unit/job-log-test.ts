@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import {
+  findLogMatches,
+  highlightSpans,
   isLineHidden,
   lineText,
   logToText,
@@ -122,5 +124,36 @@ describe('logToText', () => {
         '\x1b[31mDone\x1b[0m'
     )
     assert.equal(logToText(log), 'Building\nstep one\nDone')
+  })
+})
+
+describe('log search', () => {
+  const log = parseJobLog(
+    'Restoring packages\n\x1b[31mERROR\x1b[0m: build failed\nerror again, Error!'
+  )
+
+  it('finds every match, ignoring case', () => {
+    const matches = findLogMatches(log, 'error')
+    assert.deepEqual(
+      matches.map(m => `${m.lineIndex}:${m.start}-${m.end}`),
+      ['1:0-5', '2:0-5', '2:13-18']
+    )
+    assert.deepEqual(findLogMatches(log, ''), [])
+  })
+
+  it('splits coloured spans around a match', () => {
+    const line = log.lines[1]
+    const parts = highlightSpans(line.spans, [
+      { start: 3, end: 7, current: true },
+    ])
+    assert.deepEqual(
+      parts.map(p => [p.text, p.mark, p.fg !== undefined]),
+      [
+        ['ERR', null, true],
+        ['OR', 'current', true],
+        [': ', 'current', false],
+        ['build failed', null, false],
+      ]
+    )
   })
 })

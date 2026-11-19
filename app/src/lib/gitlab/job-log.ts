@@ -310,3 +310,94 @@ export function lineText(line: ILogLine): string {
 export function logToText(log: IParsedLog): string {
   return log.lines.map(lineText).join('\n')
 }
+
+/** A search hit: characters [start, end) of a line's text. */
+export interface ILogMatch {
+  /** Index into `log.lines`. */
+  readonly lineIndex: number
+  readonly start: number
+  readonly end: number
+}
+
+/** At most this many matches are found, so huge logs stay responsive. */
+export const MaxLogMatches = 10000
+
+/** Every case-insensitive occurrence of `query` in the log, in order. */
+export function findLogMatches(
+  log: IParsedLog,
+  query: string
+): ReadonlyArray<ILogMatch> {
+  const needle = query.toLowerCase()
+  if (needle.length === 0) {
+    return []
+  }
+  const matches = new Array<ILogMatch>()
+  log.lines.forEach((line, lineIndex) => {
+    const text = lineText(line).toLowerCase()
+    let from = 0
+    while (matches.length < MaxLogMatches) {
+      const at = text.indexOf(needle, from)
+      if (at === -1) {
+        break
+      }
+      matches.push({ lineIndex, start: at, end: at + needle.length })
+      from = at + Math.max(needle.length, 1)
+    }
+  })
+  return matches
+}
+
+/** A piece of a line, marked if it's part of a search match. */
+export interface IHighlightedSpan extends ILogSpan {
+  /** `match` for any hit, `current` for the selected one. */
+  readonly mark: 'match' | 'current' | null
+}
+
+/**
+ * Split a line's spans so search hits can be highlighted without losing
+ * their colours.
+ */
+export function highlightSpans(
+  spans: ReadonlyArray<ILogSpan>,
+  ranges: ReadonlyArray<{
+    readonly start: number
+    readonly end: number
+    readonly current: boolean
+  }>
+): ReadonlyArray<IHighlightedSpan> {
+  if (ranges.length === 0) {
+    return spans.map(s => ({ ...s, mark: null }))
+  }
+  const result = new Array<IHighlightedSpan>()
+  let offset = 0
+  for (const span of spans) {
+    const spanStart = offset
+    const spanEnd = offset + span.text.length
+    offset = spanEnd
+    // Cut points inside this span.
+    const cuts = new Set<number>([spanStart, spanEnd])
+    for (const r of ranges) {
+      if (r.start > spanStart && r.start < spanEnd) {
+        cuts.add(r.start)
+      }
+      if (r.end > spanStart && r.end < spanEnd) {
+        cuts.add(r.end)
+      }
+    }
+    const points = [...cuts].sort((a, b) => a - b)
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i]
+      const b = points[i + 1]
+      if (a === b) {
+        continue
+      }
+      const hit = ranges.find(r => r.start <= a && r.end >= b)
+      result.push({
+        ...span,
+        text: span.text.slice(a - spanStart, b - spanStart),
+        mark: hit === undefined ? null : hit.current ? 'current' : 'match',
+      })
+    }
+  }
+  return result
+}

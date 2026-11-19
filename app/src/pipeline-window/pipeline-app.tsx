@@ -150,6 +150,7 @@ export class PipelineApp extends React.Component<
   private unmounted = false
   private readonly selectHandlers = new Map<number, () => void>()
   private readonly actionHandlers = new Map<string, () => void>()
+  private readonly logViewRef = React.createRef<JobLogView>()
   /** Pipeline iid whose needs we last asked for, so we ask once. */
   private needsRequestedFor: string | null = null
   /** Finished jobs when the test report was last fetched. */
@@ -542,6 +543,10 @@ export class PipelineApp extends React.Component<
     }
   }
 
+  private onFindInLog = () => {
+    this.logViewRef.current?.openSearch()
+  }
+
   /** Copy the selected job's whole log (folded sections included). */
   private async copyLog(job: IJobDetails) {
     const { log } = this.state
@@ -924,6 +929,16 @@ export class PipelineApp extends React.Component<
             >
               Copy log
             </button>
+            <button
+              type="button"
+              disabled={
+                this.state.log === null || this.state.log.lines.length === 0
+              }
+              onClick={this.onFindInLog}
+              aria-label={`Find in log (${__DARWIN__ ? '⌘F' : 'Ctrl+F'})`}
+            >
+              Find
+            </button>
             {job.hasArchive && (
               <button
                 type="button"
@@ -947,6 +962,7 @@ export class PipelineApp extends React.Component<
           </div>
         </div>
         <JobLogView
+          ref={this.logViewRef}
           key={job.id}
           log={this.state.log}
           isLoading={this.state.logLoading}

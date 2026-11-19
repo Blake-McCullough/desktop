@@ -1,8 +1,13 @@
 import * as React from 'react'
+import memoizeOne from 'memoize-one'
 import {
   ILogLine,
+  ILogMatch,
   ILogSpan,
   IParsedLog,
+  MaxLogMatches,
+  findLogMatches,
+  highlightSpans,
   isLineHidden,
 } from '../lib/gitlab/job-log'
 import { formatDuration } from '../lib/gitlab/pipeline-details'
@@ -21,7 +26,21 @@ interface IJobLogViewState {
   /** Keep the newest output in view. Off once the user scrolls up. */
   readonly follow: boolean
   readonly showAll: boolean
+  /** The find bar (Ctrl/Cmd+F). */
+  readonly searchOpen: boolean
+  readonly query: string
+  /** Index into the matches of the selected one. */
+  readonly currentMatch: number
 }
+
+/** A search hit within a line, for highlighting. */
+interface ILineRange {
+  readonly start: number
+  readonly end: number
+  readonly current: boolean
+}
+
+type LineRanges = ReadonlyMap<number, ReadonlyArray<ILineRange>>
 
 /** Rendering every line of a huge log on each update is slow. */
 const VisibleLineLimit = 3000
@@ -51,10 +70,42 @@ export class JobLogView extends React.Component<
     number,
     (event: React.MouseEvent<HTMLButtonElement>) => void
   >()
+  private readonly searchInputRef = React.createRef<HTMLInputElement>()
+  /** Scroll the selected match into view after the next render. */
+  private scrollToMatch = false
+
+  private getMatches = memoizeOne((log: IParsedLog | null, query: string) =>
+    log === null ? [] : findLogMatches(log, query)
+  )
+
+  /** Matches by line number, for highlighting. */
+  private getRanges = memoizeOne(
+    (
+      log: IParsedLog,
+      matches: ReadonlyArray<ILogMatch>,
+      current: number
+    ): LineRanges => {
+      const map = new Map<number, Array<ILineRange>>()
+      matches.forEach((m, i) => {
+        const lineNumber = log.lines[m.lineIndex].number
+        const list = map.get(lineNumber) ?? []
+        list.push({ start: m.start, end: m.end, current: i === current })
+        map.set(lineNumber, list)
+      })
+      return map
+    }
+  )
 
   public constructor(props: IJobLogViewProps) {
     super(props)
-    this.state = { toggled: new Set(), follow: true, showAll: false }
+    this.state = {
+      toggled: new Set(),
+      follow: true,
+      showAll: false,
+      searchOpen: false,
+      query: '',
+      currentMatch: 0,
+    }
   }
 
   public componentDidMount() {
@@ -67,9 +118,90 @@ export class JobLogView extends React.Component<
   }
 
   public componentDidUpdate(prevProps: IJobLogViewProps) {
-    if (prevProps.log !== this.props.log) {
+    if (this.scrollToMatch) {
+      this.scrollToMatch = false
+      this.scrollRef.current
+        ?.querySelector('mark.current')
+        ?.scrollIntoView({ block: 'center' })
+    } else if (prevProps.log !== this.props.log) {
       this.scrollToEndIfFollowing()
     }
+  }
+
+  /** Open the find bar (Ctrl/Cmd+F, or the Find button). */
+  public openSearch() {
+    this.setState({ searchOpen: true }, () => {
+      this.searchInputRef.current?.focus()
+      this.searchInputRef.current?.select()
+    })
+  }
+
+  private closeSearch = () => {
+    this.setState({ searchOpen: false, query: '', currentMatch: 0 })
+  }
+
+  private onQueryChanged = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const query = event.currentTarget.value
+    this.setState({ query, currentMatch: 0 }, () => this.goToMatch(0))
+  }
+
+  private onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      this.step(event.shiftKey ? -1 : 1)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      this.closeSearch()
+    }
+  }
+
+  private onNextMatch = () => this.step(1)
+  private onPreviousMatch = () => this.step(-1)
+
+  private step(delta: number) {
+    const count = this.getMatches(this.props.log, this.state.query).length
+    if (count === 0) {
+      return
+    }
+    this.goToMatch((this.state.currentMatch + delta + count) % count)
+  }
+
+  /**
+   * Select a match: unfold the sections it's in, make sure its line is
+   * rendered, stop following the tail, and scroll to it.
+   */
+  private goToMatch(index: number) {
+    const { log } = this.props
+    const match = this.getMatches(log, this.state.query)[index]
+    if (log === null || match === undefined) {
+      return
+    }
+    const line = log.lines[match.lineIndex]
+    const toggled = new Set(this.state.toggled)
+    let id = line.sectionId
+    while (id !== null) {
+      const section = log.sections.get(id)
+      if (section === undefined) {
+        break
+      }
+      // A line's own section header is always visible; its parents aren't.
+      if (line.startsSection !== id) {
+        if (section.collapsedByDefault) {
+          toggled.add(id)
+        } else {
+          toggled.delete(id)
+        }
+      }
+      id = section.parentId
+    }
+    this.scrollToMatch = true
+    this.setState({
+      currentMatch: index,
+      toggled,
+      follow: false,
+      showAll: true,
+    })
   }
 
   private scrollToEndIfFollowing() {
@@ -140,6 +272,16 @@ export class JobLogView extends React.Component<
    */
   private onDocumentKeyDown = (event: KeyboardEvent) => {
     const mod = __DARWIN__ ? event.metaKey : event.ctrlKey
+    if (mod && !event.altKey && !event.shiftKey && event.key === 'f') {
+      event.preventDefault()
+      this.openSearch()
+      return
+    }
+    if (event.key === 'F3' && this.state.searchOpen) {
+      event.preventDefault()
+      this.step(event.shiftKey ? -1 : 1)
+      return
+    }
     if (!mod || event.altKey || event.shiftKey || event.key !== 'a') {
       return
     }
@@ -199,6 +341,10 @@ export class JobLogView extends React.Component<
     }
 
     const collapsed = this.getCollapsed(log)
+    const matches = this.state.searchOpen
+      ? this.getMatches(log, this.state.query)
+      : []
+    const ranges = this.getRanges(log, matches, this.state.currentMatch)
     const visible = log.lines.filter(
       l => !isLineHidden(l, log.sections, collapsed)
     )
@@ -210,6 +356,7 @@ export class JobLogView extends React.Component<
 
     return (
       <div className="job-log-container">
+        {this.state.searchOpen && this.renderSearchBar(matches)}
         <div
           className="job-log"
           ref={this.scrollRef}
@@ -231,7 +378,9 @@ export class JobLogView extends React.Component<
               )}
             </div>
           )}
-          {shown.map(line => this.renderLine(line, log, collapsed))}
+          {shown.map(line =>
+            this.renderLine(line, log, collapsed, ranges.get(line.number))
+          )}
           {this.props.isLive && (
             <div className="job-log-live" aria-hidden={true}>
               <span className="job-log-cursor" />
@@ -251,16 +400,81 @@ export class JobLogView extends React.Component<
     )
   }
 
+  private renderSearchBar(matches: ReadonlyArray<ILogMatch>) {
+    const { query, currentMatch } = this.state
+    const count = matches.length
+    const status =
+      query.length === 0
+        ? ''
+        : count === 0
+        ? 'No matches'
+        : `${(currentMatch + 1).toLocaleString()} of ${count.toLocaleString()}${
+            count >= MaxLogMatches ? '+' : ''
+          }`
+    return (
+      <div className="job-log-search" role="search">
+        <input
+          ref={this.searchInputRef}
+          type="text"
+          placeholder="Find in log"
+          aria-label="Find in log"
+          value={query}
+          onChange={this.onQueryChanged}
+          onKeyDown={this.onSearchKeyDown}
+          spellCheck={false}
+        />
+        <span
+          className={`job-log-search-count${
+            query.length > 0 && count === 0 ? ' none' : ''
+          }`}
+          aria-live="polite"
+        >
+          {status}
+        </span>
+        <button
+          type="button"
+          onClick={this.onPreviousMatch}
+          disabled={count === 0}
+          aria-label="Previous match (Shift+Enter)"
+        >
+          ↑
+        </button>
+        <button
+          type="button"
+          onClick={this.onNextMatch}
+          disabled={count === 0}
+          aria-label="Next match (Enter)"
+        >
+          ↓
+        </button>
+        <button
+          type="button"
+          onClick={this.closeSearch}
+          aria-label="Close find (Escape)"
+        >
+          ✕
+        </button>
+      </div>
+    )
+  }
+
   private renderLine(
     line: ILogLine,
     log: IParsedLog,
-    collapsed: ReadonlySet<number>
+    collapsed: ReadonlySet<number>,
+    ranges: ReadonlyArray<ILineRange> | undefined
   ) {
-    const content = line.spans.map((span, i) => (
-      <span key={i} style={spanStyle(span)}>
-        {span.text}
-      </span>
-    ))
+    const content = highlightSpans(line.spans, ranges ?? []).map((span, i) =>
+      span.mark === null ? (
+        <span key={i} style={spanStyle(span)}>
+          {span.text}
+        </span>
+      ) : (
+        <mark key={i} className={span.mark} style={spanStyle(span)}>
+          {span.text}
+        </mark>
+      )
+    )
 
     if (line.startsSection !== null) {
       const section = log.sections.get(line.startsSection)
