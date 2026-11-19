@@ -7,7 +7,12 @@ import { MenuIDs } from '../../models/menu-ids'
 import { IMenu, MenuItem } from '../../models/app-menu'
 import memoizeOne from 'memoize-one'
 import { getPlatformSpecificNameOrSymbolForModifier } from '../../lib/menu-item'
-import { MenuBackedSuggestedAction } from '../suggested-actions'
+import {
+  MenuBackedSuggestedAction,
+  SuggestedAction,
+} from '../suggested-actions'
+import { gitLabMergeRequestStore } from '../../lib/stores/gitlab-merge-request-store'
+import { getCreateMergeRequestUrl } from '../../lib/gitlab/merge-requests'
 import { IRepositoryState } from '../../lib/app-state'
 import { TipState, IValidBranch } from '../../models/tip'
 import { Ref } from '../lib/ref'
@@ -196,6 +201,7 @@ export class NoChanges extends React.Component<
    * mounts. See componentDidMount/componentWillUnmount.
    */
   private transitionTimer: number | null = null
+  private mergeRequestSubscription: { dispose(): void } | null = null
 
   public constructor(props: INoChangesProps) {
     super(props)
@@ -392,7 +398,65 @@ export class NoChanges extends React.Component<
       return this.renderCreatePullRequestAction(tip)
     }
 
+    if (!isGitHub && !isDefaultBranch) {
+      return this.renderCreateMergeRequestAction(tip)
+    }
+
     return null
+  }
+
+  /**
+   * GitLab: suggest a merge request for a published branch that doesn't
+   * have one yet (the merge request is written on GitLab).
+   */
+  private renderCreateMergeRequestAction(tip: IValidBranch) {
+    const mergeRequests = gitLabMergeRequestStore.getState(
+      this.props.repository
+    )
+    if (
+      mergeRequests.project === null ||
+      mergeRequests.current !== null ||
+      mergeRequests.branch !== tip.branch.name ||
+      mergeRequests.updatedAt === null
+    ) {
+      return null
+    }
+
+    return (
+      <SuggestedAction
+        key="merge-request-action"
+        title="Create a merge request from your current branch"
+        description={
+          <>
+            The current branch (<Ref>{tip.branch.name}</Ref>) is published to
+            GitLab. Create a merge request to propose and review your changes.
+          </>
+        }
+        discoverabilityContent="Also in the toolbar's merge request button."
+        buttonText={
+          __DARWIN__ ? 'Create Merge Request' : 'Create merge request'
+        }
+        onClick={this.onCreateMergeRequestClicked}
+        type="primary"
+      />
+    )
+  }
+
+  private onCreateMergeRequestClicked = () => {
+    const { project } = gitLabMergeRequestStore.getState(this.props.repository)
+    const { tip, upstreamDefaultBranch, defaultBranch } =
+      this.props.repositoryState.branchesState
+    if (project === null || tip.kind !== TipState.Valid) {
+      return
+    }
+    const target = upstreamDefaultBranch ?? defaultBranch
+    this.props.dispatcher.openInBrowser(
+      getCreateMergeRequestUrl(
+        project,
+        tip.branch.name,
+        target?.nameWithoutRemote
+      )
+    )
   }
 
   private renderViewStashAction() {
@@ -751,6 +815,12 @@ export class NoChanges extends React.Component<
   }
 
   public componentDidMount() {
+    // Re-render when we learn whether this branch has a merge request.
+    this.mergeRequestSubscription = gitLabMergeRequestStore.onDidUpdate(id => {
+      if (id === this.props.repository.id) {
+        this.forceUpdate()
+      }
+    })
     this.transitionTimer = window.setTimeout(() => {
       this.setState({ enableTransitions: true })
       this.transitionTimer = null
@@ -758,6 +828,7 @@ export class NoChanges extends React.Component<
   }
 
   public componentWillUnmount() {
+    this.mergeRequestSubscription?.dispose()
     if (this.transitionTimer !== null) {
       clearTimeout(this.transitionTimer)
     }

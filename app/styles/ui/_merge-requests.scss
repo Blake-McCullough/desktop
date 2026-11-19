@@ -1,0 +1,197 @@
+// The GitLab merge request toolbar button and its dropdown.
+
+.merge-request-button {
+  .mr-summary {
+    white-space: nowrap;
+  }
+
+  .mr-pipeline {
+    &.status-green {
+      color: var(--status-success-color, #1a7f37);
+    }
+    &.status-red {
+      color: var(--status-error-color, #cf222e);
+    }
+    &.status-blue {
+      color: var(--link-button-color);
+    }
+    &.status-yellow {
+      color: var(--status-warning-color, #9a6700);
+    }
+  }
+}
+
+.merge-request-foldout {
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  overflow-y: auto;
+
+  section {
+    padding: var(--spacing) var(--spacing-double);
+    border-bottom: var(--base-border);
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+
+  h2 {
+    margin: 0 0 var(--spacing-half);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-secondary-color);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  p {
+    margin: var(--spacing-half) 0;
+  }
+
+  .mr-muted,
+  .mr-updated {
+    color: var(--text-secondary-color);
+  }
+
+  .mr-updated {
+    font-size: var(--font-size-sm);
+  }
+
+  .mr-error {
+    padding: var(--spacing) var(--spacing-double);
+    color: var(--error-color);
+    border-bottom: var(--base-border);
+  }
+
+  .mr-title {
+    display: flex;
+    gap: var(--spacing-half);
+    align-items: flex-start;
+    font-size: var(--font-size-md);
+
+    .octicon {
+      flex-shrink: 0;
+      margin-top: 2px;
+      color: var(--status-success-color, #1a7f37);
+    }
+  }
+
+  .mr-meta {
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+    word-break: break-word;
+  }
+
+  .mr-checks {
+    list-style: none;
+    margin: var(--spacing) 0;
+    padding: 0;
+
+    li {
+      position: relative;
+      padding: 2px 0 2px 16px;
+
+      &::before {
+        content: '';
+        position: absolute;
+        left: 2px;
+        top: 8px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+    }
+
+    .good {
+      color: var(--status-success-color, #1a7f37);
+    }
+    .warn {
+      color: var(--status-warning-color, #9a6700);
+    }
+    .bad {
+      color: var(--status-error-color, #cf222e);
+    }
+    .status-green {
+      color: var(--status-success-color, #1a7f37);
+    }
+    .status-red {
+      color: var(--status-error-color, #cf222e);
+    }
+    .status-blue {
+      color: var(--link-button-color);
+    }
+    .status-yellow {
+      color: var(--status-warning-color, #9a6700);
+    }
+  }
+
+  .mr-actions {
+    display: flex;
+    gap: var(--spacing-half);
+  }
+
+  .mr-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    h2 {
+      margin: 0;
+    }
+  }
+
+  .mr-list {
+    .text-box-component {
+      margin: var(--spacing-half) 0;
+    }
+
+    ul {
+      list-style: none;
+      margin: var(--spacing-half) 0 0;
+      padding: 0;
+    }
+  }
+
+  .mr-item {
+    display: flex;
+    gap: var(--spacing);
+    align-items: center;
+    padding: var(--spacing-half) 0;
+    border-top: var(--base-border);
+
+    &:first-child {
+      border-top: none;
+    }
+  }
+
+  .mr-item-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .mr-item-title {
+    display: flex;
+    gap: var(--spacing-half);
+    align-items: center;
+    font-weight: var(--font-weight-semibold);
+    word-break: break-word;
+  }
+
+  .mr-badge {
+    flex-shrink: 0;
+    padding: 0 6px;
+    border: var(--base-border);
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--text-secondary-color);
+  }
+
+  .mr-item-actions {
+    display: flex;
+    gap: var(--spacing-half);
+    flex-shrink: 0;
+  }
+}

@@ -125,6 +125,11 @@ listed.
   time, connected to the jobs it `needs:` (or to the stage before, for
   pipelines without `needs:`). Click a card for its log, or ▶ to run a
   manual job.
+- **Merge requests**: a toolbar button shows the current branch's merge
+  request with its approvals, merge status and pipeline, or offers to
+  create one (on GitLab) once the branch is published. Its dropdown lists
+  the project's open merge requests to check out, including ones from
+  forks.
 - **Test results**: the pipeline window's Tests tab shows the results GitLab
   collected from JUnit XML reports (jobs that list them under
   `artifacts: reports: junit:`), failed tests first with their message and

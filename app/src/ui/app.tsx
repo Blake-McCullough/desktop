@@ -154,6 +154,7 @@ import { ImportRepositoriesDialog } from './repositories-list/import-repositorie
 import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
 import { MoveRepositoriesDialog } from './repositories-list/move-repositories-dialog'
 import { QuickSwitcher } from './quick-switcher/quick-switcher'
+import { MergeRequestButton } from './merge-requests/merge-request-button'
 import { getQuickSwitcherAccelerator } from '../lib/shortcut-settings'
 import { ExportRepositoriesDialog } from './repositories-list/export-repositories-dialog'
 import { GitLabPipelinePoller } from './repositories-list/gitlab-pipeline-poller'
@@ -4286,6 +4287,30 @@ export class App extends React.Component<IAppProps, IAppState> {
     this.props.dispatcher.clearBanner()
   }
 
+  /** GitLab repositories: the current branch's merge request and the list. */
+  private renderMergeRequestToolbarButton() {
+    const selection = this.state.selectedState
+    if (selection === null || selection.type !== SelectionType.Repository) {
+      return null
+    }
+    const { branchesState } = selection.state
+    const tip = branchesState.tip
+    const branch = tip.kind === TipState.Valid ? tip.branch : null
+    const defaultBranch =
+      branchesState.upstreamDefaultBranch ?? branchesState.defaultBranch
+
+    return (
+      <MergeRequestButton
+        dispatcher={this.props.dispatcher}
+        repository={selection.repository}
+        branchName={branch?.name ?? null}
+        isBranchPublished={branch !== null && branch.upstream !== null}
+        defaultBranchName={defaultBranch?.nameWithoutRemote ?? null}
+        enableFocusTrap={this.state.currentPopup === null}
+      />
+    )
+  }
+
   private renderToolbar() {
     /**
      * No toolbar if we're in the blank slate view.
@@ -4304,6 +4329,7 @@ export class App extends React.Component<IAppProps, IAppState> {
         {this.renderWorktreeToolbarButton()}
         {this.renderBranchToolbarButton()}
         {this.renderPushPullToolbarButton()}
+        {this.renderMergeRequestToolbarButton()}
       </Toolbar>
     )
   }

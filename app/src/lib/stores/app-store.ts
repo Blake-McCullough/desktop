@@ -285,6 +285,9 @@ import {
   getFilesDiffText,
   git,
 } from '../git'
+import { fetchRefspec } from '../git/fetch'
+import { IGitLabProject, parseGitLabProject } from '../gitlab/gitlab-api'
+import { IMergeRequest } from '../gitlab/merge-requests'
 import {
   installGlobalLFSFilters,
   installLFSHooks,
@@ -10650,6 +10653,95 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     return gitStore.addUpstreamRemoteIfNeeded()
+  }
+
+  /**
+   * Check out a GitLab merge request's source branch. For a branch in the
+   * same project that's the branch itself (fetching it first if needed), so
+   * pushes update the merge request. For a fork, GitLab's
+   * `refs/merge-requests/<iid>/head` ref is fetched into
+   * `<remote>/merge-requests/<iid>` and checked out from there.
+   */
+  public async _checkoutGitLabMergeRequest(
+    repository: Repository,
+    project: IGitLabProject,
+    mergeRequest: IMergeRequest
+  ): Promise<void> {
+    const gitStore = this.gitStoreCache.get(repository)
+    const remotes = await getRemotes(repository)
+    const remote = remotes.find(r => {
+      const parsed = parseGitLabProject(r.url)
+      return (
+        parsed !== null &&
+        parsed.hostname.toLowerCase() === project.hostname.toLowerCase() &&
+        parsed.projectPath.toLowerCase() === project.projectPath.toLowerCase()
+      )
+    })
+    if (remote === undefined) {
+      this.emitError(
+        new Error(
+          `Couldn't find a remote for ${project.projectPath} in this repository.`
+        )
+      )
+      return
+    }
+
+    const remoteRef = mergeRequest.isFromFork
+      ? `${remote.name}/merge-requests/${mergeRequest.iid}`
+      : `${remote.name}/${mergeRequest.sourceBranch}`
+
+    const findLocal = () =>
+      gitStore.allBranches.find(
+        b =>
+          b.type === BranchType.Local &&
+          (b.upstream === remoteRef ||
+            (!mergeRequest.isFromFork && b.name === mergeRequest.sourceBranch))
+      )
+    const findRemote = () =>
+      gitStore.allBranches.find(
+        b => b.type === BranchType.Remote && b.name === remoteRef
+      )
+
+    let branch = findLocal() ?? findRemote()
+
+    if (mergeRequest.isFromFork || branch === undefined) {
+      try {
+        if (mergeRequest.isFromFork) {
+          await fetchRefspec(
+            repository,
+            remote,
+            `+refs/merge-requests/${mergeRequest.iid}/head:refs/remotes/${remoteRef}`
+          )
+          await gitStore.loadBranches()
+        } else {
+          await this._fetchRemote(
+            repository,
+            remote,
+            FetchType.UserInitiatedTask
+          )
+        }
+      } catch (e) {
+        log.error(`Couldn't fetch merge request !${mergeRequest.iid}`, e)
+      }
+      branch = findLocal() ?? findRemote()
+    }
+
+    if (branch === undefined) {
+      this.emitError(
+        new Error(
+          mergeRequest.isFromFork
+            ? `Couldn't fetch merge request !${mergeRequest.iid} from ` +
+              `${remote.name}. Check your connection and that you can ` +
+              `access the project.`
+            : `Couldn't find the branch for merge request ` +
+              `!${mergeRequest.iid} ('${mergeRequest.sourceBranch}'). ` +
+              `It may have been deleted.`
+        )
+      )
+      return
+    }
+
+    await this._checkoutBranch(repository, branch)
   }
 
   public async _checkoutPullRequest(

@@ -1,4 +1,6 @@
 import { ShortcutOverrides } from '../../models/shortcuts'
+import { IGitLabProject } from '../../lib/gitlab/gitlab-api'
+import { IMergeRequest } from '../../lib/gitlab/merge-requests'
 import { Disposable } from 'event-kit'
 import type {
   IRepositoryMovePlan,
@@ -3156,6 +3158,19 @@ export class Dispatcher {
 
   public setShowCommitLengthWarning(showCommitLengthWarning: boolean) {
     this.appStore._setShowCommitLengthWarning(showCommitLengthWarning)
+  }
+
+  /** Check out a GitLab merge request's branch. */
+  public checkoutGitLabMergeRequest(
+    repository: Repository,
+    project: IGitLabProject,
+    mergeRequest: IMergeRequest
+  ) {
+    return this.appStore._checkoutGitLabMergeRequest(
+      repository,
+      project,
+      mergeRequest
+    )
   }
 
   /** Save changed menu shortcuts and apply them to the menu. */

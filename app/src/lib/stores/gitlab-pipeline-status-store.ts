@@ -715,6 +715,13 @@ class GitLabPipelineStatusStore {
     return result
   }
 
+  /** The repository's GitLab project, or null if it isn't one. */
+  public getGitLabProject(
+    repository: Repository
+  ): Promise<IGitLabProject | null> {
+    return this.resolveProject(repository)
+  }
+
   /**
    * Resolve a repository to a GitLab project, caching the answer (including
    * "not GitLab") so we don't spawn git for every repository on every poll.
