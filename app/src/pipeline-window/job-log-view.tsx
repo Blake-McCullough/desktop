@@ -47,6 +47,10 @@ export class JobLogView extends React.Component<
   private readonly scrollRef = React.createRef<HTMLDivElement>()
   private readonly toggleHandlers = new Map<number, () => void>()
   private readonly headerClickHandlers = new Map<number, () => void>()
+  private readonly caretClickHandlers = new Map<
+    number,
+    (event: React.MouseEvent<HTMLButtonElement>) => void
+  >()
 
   public constructor(props: IJobLogViewProps) {
     super(props)
@@ -109,6 +113,23 @@ export class JobLogView extends React.Component<
         }
       }
       this.headerClickHandlers.set(id, handler)
+    }
+    return handler
+  }
+
+  /**
+   * The fold button sits inside the header line, which folds on click too:
+   * stop the click reaching it, or the section would fold and unfold.
+   */
+  private getCaretClick(id: number) {
+    let handler = this.caretClickHandlers.get(id)
+    if (handler === undefined) {
+      const toggle = this.getToggle(id)
+      handler = (event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation()
+        toggle()
+      }
+      this.caretClickHandlers.set(id, handler)
     }
     return handler
   }
@@ -257,7 +278,7 @@ export class JobLogView extends React.Component<
           <button
             type="button"
             className="job-log-caret"
-            onClick={this.getToggle(line.startsSection)}
+            onClick={this.getCaretClick(line.startsSection)}
             aria-expanded={!isCollapsed}
             aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${
               section?.name ?? 'section'
