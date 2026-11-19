@@ -125,6 +125,11 @@ listed.
   time, connected to the jobs it `needs:` (or to the stage before, for
   pipelines without `needs:`). Click a card for its log, or ▶ to run a
   manual job.
+- **Test results**: the pipeline window's Tests tab shows the results GitLab
+  collected from JUnit XML reports (jobs that list them under
+  `artifacts: reports: junit:`), failed tests first with their message and
+  stack trace, and the graph marks jobs with failing tests. For .NET `.trx`
+  files, convert them to JUnit in CI (e.g. with `trx2junit`).
 - **Pipeline window**: the pipeline's jobs by stage and each job's log, with
   colours and collapsible sections like GitLab's own job page. A running
   job's log follows new output live. Select any part of a log to copy it, or use **Copy log** for all of it. Run manual jobs, retry or cancel jobs or

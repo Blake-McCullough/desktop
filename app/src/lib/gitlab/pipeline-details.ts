@@ -369,3 +369,142 @@ export async function fetchPipelineNeeds(
 
   return { stages, needs }
 }
+
+/* ------------------------------ test reports ----------------------------- */
+
+/** One test case from a pipeline's JUnit report. */
+export interface ITestCase {
+  readonly name: string
+  readonly classname: string | null
+  readonly file: string | null
+  /** `success`, `failed`, `skipped` or `error`. */
+  readonly status: string
+  /** Seconds. */
+  readonly executionTime: number | null
+  /** The failure message / output GitLab recorded. */
+  readonly output: string | null
+  readonly stackTrace: string | null
+  /** How many times it failed recently on the default branch, if known. */
+  readonly recentFailures: number | null
+}
+
+/** Results for one job (GitLab names the suite after the job). */
+export interface ITestSuite {
+  readonly name: string
+  readonly totalTime: number
+  readonly totalCount: number
+  readonly successCount: number
+  readonly failedCount: number
+  readonly skippedCount: number
+  readonly errorCount: number
+  /** Set when GitLab couldn't parse the suite's report. */
+  readonly suiteError: string | null
+  readonly testCases: ReadonlyArray<ITestCase>
+}
+
+export interface ITestReport {
+  readonly totalTime: number
+  readonly totalCount: number
+  readonly successCount: number
+  readonly failedCount: number
+  readonly skippedCount: number
+  readonly errorCount: number
+  readonly suites: ReadonlyArray<ITestSuite>
+}
+
+interface IApiTestCase {
+  readonly status?: string
+  readonly name?: string
+  readonly classname?: string | null
+  readonly file?: string | null
+  readonly execution_time?: number | null
+  readonly system_output?: string | null
+  readonly stack_trace?: string | null
+  readonly recent_failures?: { readonly count?: number } | null
+}
+
+interface IApiTestSuite {
+  readonly name?: string
+  readonly total_time?: number
+  readonly total_count?: number
+  readonly success_count?: number
+  readonly failed_count?: number
+  readonly skipped_count?: number
+  readonly error_count?: number
+  readonly suite_error?: string | null
+  readonly test_cases?: ReadonlyArray<IApiTestCase>
+}
+
+interface IApiTestReport extends IApiTestSuite {
+  readonly test_suites?: ReadonlyArray<IApiTestSuite>
+}
+
+const num = (n: number | undefined | null) =>
+  typeof n === 'number' && isFinite(n) ? n : 0
+
+function toTestCase(api: IApiTestCase): ITestCase {
+  // GitLab sends system_output as a string, or occasionally an array.
+  const rawOutput = api.system_output as unknown
+  const output = Array.isArray(rawOutput)
+    ? rawOutput.join('\n')
+    : typeof rawOutput === 'string'
+    ? rawOutput
+    : null
+  return {
+    name: api.name ?? '(unnamed test)',
+    classname: api.classname ?? null,
+    file: api.file ?? null,
+    status: api.status ?? 'unknown',
+    executionTime:
+      typeof api.execution_time === 'number' ? api.execution_time : null,
+    output: output !== null && output.trim().length > 0 ? output : null,
+    stackTrace:
+      typeof api.stack_trace === 'string' && api.stack_trace.trim().length > 0
+        ? api.stack_trace
+        : null,
+    recentFailures:
+      typeof api.recent_failures?.count === 'number'
+        ? api.recent_failures.count
+        : null,
+  }
+}
+
+export function toTestReport(api: IApiTestReport): ITestReport {
+  return {
+    totalTime: num(api.total_time),
+    totalCount: num(api.total_count),
+    successCount: num(api.success_count),
+    failedCount: num(api.failed_count),
+    skippedCount: num(api.skipped_count),
+    errorCount: num(api.error_count),
+    suites: (api.test_suites ?? []).map(s => ({
+      name: s.name ?? '(unnamed suite)',
+      totalTime: num(s.total_time),
+      totalCount: num(s.total_count),
+      successCount: num(s.success_count),
+      failedCount: num(s.failed_count),
+      skippedCount: num(s.skipped_count),
+      errorCount: num(s.error_count),
+      suiteError: s.suite_error ?? null,
+      testCases: (s.test_cases ?? []).map(toTestCase),
+    })),
+  }
+}
+
+/**
+ * The pipeline's test results, parsed by GitLab from the JUnit XML files
+ * its jobs list under `artifacts:reports:junit`. Empty (total 0) when no
+ * job does.
+ */
+export async function fetchPipelineTestReport(
+  project: IGitLabProject,
+  pipelineId: number,
+  token: string
+): Promise<ITestReport> {
+  const api = await gitLabProjectRequest<IApiTestReport>(
+    project,
+    `/pipelines/${pipelineId}/test_report`,
+    token
+  )
+  return toTestReport(api ?? {})
+}

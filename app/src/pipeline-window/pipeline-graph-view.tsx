@@ -22,6 +22,8 @@ interface IPipelineGraphViewProps {
   /** Run a manual job. */
   readonly onRunJob: (job: IJobDetails) => void
   readonly isRunning: (jobId: number) => boolean
+  /** Failed tests per job name, from the pipeline's test report. */
+  readonly failedTests: ReadonlyMap<string, number>
 }
 
 const CardWidth = 240
@@ -196,9 +198,12 @@ export class PipelineGraphView extends React.Component<IPipelineGraphViewProps> 
     const selected = job.id === this.props.selectedJobId
     const duration = formatDuration(elapsed(job))
     const canRun = job.status === 'manual'
+    const failedTests = this.props.failedTests.get(job.name) ?? 0
     const label = `${job.name} (${job.stage}): ${formatStatus(job.status)}${
       duration ? `, ${duration}` : ''
-    }${job.allowFailure && job.status === 'failed' ? ' (allowed to fail)' : ''}`
+    }${
+      job.allowFailure && job.status === 'failed' ? ' (allowed to fail)' : ''
+    }${failedTests > 0 ? `, ${failedTests} failed tests` : ''}`
 
     return (
       <div
@@ -217,6 +222,11 @@ export class PipelineGraphView extends React.Component<IPipelineGraphViewProps> 
         >
           <span className="graph-job-icon" aria-hidden={true} />
           <span className="graph-job-name">{job.name}</span>
+          {failedTests > 0 && (
+            <span className="graph-job-tests" aria-hidden={true}>
+              {failedTests} failed
+            </span>
+          )}
           {!canRun && <span className="graph-job-duration">{duration}</span>}
         </button>
         {canRun && (

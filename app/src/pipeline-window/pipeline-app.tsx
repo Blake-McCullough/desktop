@@ -17,12 +17,14 @@ import {
   IJobDetails,
   IPipelineDetails,
   IPipelineNeeds,
+  ITestReport,
   JobAction,
   fetchJobArtifactsArchive,
   fetchJobLog,
   fetchPipelineDetails,
   fetchPipelineJobDetails,
   fetchPipelineNeeds,
+  fetchPipelineTestReport,
   formatDuration,
   getJobActions,
   runJobAction,
@@ -31,6 +33,8 @@ import {
 import { IParsedLog, logToText, parseJobLog } from '../lib/gitlab/job-log'
 import { JobLogView } from './job-log-view'
 import { PipelineGraphView } from './pipeline-graph-view'
+import { TestsView } from './tests-view'
+import { failuresBySuite } from '../lib/gitlab/test-report'
 import {
   openExternal,
   showSaveDialogForWindow,
@@ -57,14 +61,19 @@ interface IPipelineAppState {
   readonly view: PipelineView
   /** Which jobs need which (from GraphQL); null until known or if unavailable. */
   readonly needs: IPipelineNeeds | null
+  /** GitLab's test report for the pipeline; null until loaded. */
+  readonly testReport: ITestReport | null
+  readonly testsLoading: boolean
+  readonly testsError: string | null
 }
 
-type PipelineView = 'graph' | 'jobs'
+type PipelineView = 'graph' | 'jobs' | 'tests'
 const ViewKey = 'pipeline-window/view'
 
 function getStoredView(): PipelineView {
   try {
-    return localStorage.getItem(ViewKey) === 'jobs' ? 'jobs' : 'graph'
+    const stored = localStorage.getItem(ViewKey)
+    return stored === 'jobs' || stored === 'tests' ? stored : 'graph'
   } catch {
     return 'graph'
   }
@@ -143,6 +152,8 @@ export class PipelineApp extends React.Component<
   private readonly actionHandlers = new Map<string, () => void>()
   /** Pipeline iid whose needs we last asked for, so we ask once. */
   private needsRequestedFor: string | null = null
+  /** Finished jobs when the test report was last fetched. */
+  private testsFetchedFor: string | null = null
 
   public constructor(props: IPipelineAppProps) {
     super(props)
@@ -161,6 +172,9 @@ export class PipelineApp extends React.Component<
       // Opened from a job's dot: show that job. Otherwise the last view used.
       view: props.request.jobId !== null ? 'jobs' : getStoredView(),
       needs: null,
+      testReport: null,
+      testsLoading: false,
+      testsError: null,
     }
   }
 
@@ -227,6 +241,57 @@ export class PipelineApp extends React.Component<
 
   private onShowGraph = () => this.setView('graph', true)
   private onShowJobs = () => this.setView('jobs', true)
+  private onShowTests = () => this.setView('tests', true)
+
+  /**
+   * Fetch GitLab's test report. Results only change when jobs finish, so
+   * this runs again only when the set of finished jobs changes.
+   */
+  private async refreshTests(
+    pipeline: IPipelineDetails,
+    jobs: ReadonlyArray<IJobDetails>
+  ) {
+    const key = `${pipeline.id}:${jobs
+      .filter(j => !isActiveStatus(j.status))
+      .map(j => `${j.id}=${j.status}`)
+      .join(',')}`
+    if (this.testsFetchedFor === key) {
+      return
+    }
+    this.testsFetchedFor = key
+    this.setState({ testsLoading: true })
+    try {
+      const token = await this.getToken()
+      const testReport = await fetchPipelineTestReport(
+        this.project,
+        pipeline.id,
+        token
+      )
+      if (!this.unmounted) {
+        this.setState({ testReport, testsLoading: false, testsError: null })
+      }
+    } catch (e) {
+      // Try again on the next refresh.
+      this.testsFetchedFor = null
+      if (!this.unmounted) {
+        this.setState({ testsLoading: false, testsError: describeError(e) })
+      }
+    }
+  }
+
+  private onOpenJobFromTests = (jobId: number) => {
+    this.selectJob(jobId)
+    this.setView('jobs', false)
+  }
+
+  private onCopyTest = async (text: string, what: string) => {
+    const ok = await writeClipboardText(text)
+    this.setState(
+      ok
+        ? { notice: `Copied ${what}.`, error: null }
+        : { notice: null, error: "Couldn't copy to the clipboard." }
+    )
+  }
 
   /** `remember`: the view you picked becomes the default for new windows. */
   private setView(view: PipelineView, remember: boolean) {
@@ -345,6 +410,7 @@ export class PipelineApp extends React.Component<
         }
       )
       this.refreshNeeds(pipeline, jobs)
+      this.refreshTests(pipeline, jobs)
       document.title = `Pipeline #${pipeline.id} · ${formatStatus(
         pipeline.status
       )} — ${this.props.request.repositoryName}`
@@ -603,11 +669,23 @@ export class PipelineApp extends React.Component<
           </div>
         )}
         {this.renderViewSwitch()}
-        {this.state.view === 'graph' ? (
+        {this.state.view === 'tests' ? (
+          <div className="pipeline-body tests">
+            <TestsView
+              report={this.state.testReport}
+              isLoading={this.state.testsLoading}
+              error={this.state.testsError}
+              jobs={this.state.jobs}
+              onOpenJobLog={this.onOpenJobFromTests}
+              onCopy={this.onCopyTest}
+            />
+          </div>
+        ) : this.state.view === 'graph' ? (
           <div className="pipeline-body graph">
             <PipelineGraphView
               jobs={this.state.jobs}
               needs={this.state.needs}
+              failedTests={failuresBySuite(this.state.testReport)}
               selectedJobId={this.state.selectedJobId}
               onOpenJob={this.onOpenJobFromGraph}
               onRunJob={this.onRunJobFromGraph}
@@ -625,7 +703,9 @@ export class PipelineApp extends React.Component<
   }
 
   private renderViewSwitch() {
-    const { view } = this.state
+    const { view, testReport } = this.state
+    const failedTests =
+      testReport === null ? 0 : testReport.failedCount + testReport.errorCount
     return (
       <div className="pipeline-view-switch" role="tablist" aria-label="View">
         <button
@@ -645,6 +725,18 @@ export class PipelineApp extends React.Component<
           onClick={this.onShowJobs}
         >
           Jobs and logs
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'tests'}
+          className={view === 'tests' ? 'selected' : undefined}
+          onClick={this.onShowTests}
+        >
+          Tests
+          {failedTests > 0 && (
+            <span className="tab-count failed">{failedTests}</span>
+          )}
         </button>
       </div>
     )
