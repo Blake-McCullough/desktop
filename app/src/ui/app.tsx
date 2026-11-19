@@ -155,6 +155,7 @@ import { WorktreeViewerDialog } from './worktrees/worktree-viewer-dialog'
 import { MoveRepositoriesDialog } from './repositories-list/move-repositories-dialog'
 import { QuickSwitcher } from './quick-switcher/quick-switcher'
 import { DebugInfoDialog } from './debug-info/debug-info-dialog'
+import { SettingsBackupDialog } from './settings-backup/settings-backup-dialog'
 import { MergeRequestButton } from './merge-requests/merge-request-button'
 import { getQuickSwitcherAccelerator } from '../lib/shortcut-settings'
 import { ExportRepositoriesDialog } from './repositories-list/export-repositories-dialog'
@@ -492,6 +493,12 @@ export class App extends React.Component<IAppProps, IAppState> {
         return this.chooseRepository()
       case 'show-quick-switcher':
         return this.showQuickSwitcher()
+      case 'export-settings':
+      case 'import-settings':
+        return this.props.dispatcher.showPopup({
+          type: PopupType.SettingsBackup,
+          mode: name === 'export-settings' ? 'export' : 'import',
+        })
       case 'show-debug-info':
         return this.props.dispatcher.showPopup({ type: PopupType.DebugInfo })
       case 'add-local-repository':
@@ -2722,6 +2729,18 @@ export class App extends React.Component<IAppProps, IAppState> {
           />
         )
       }
+      case PopupType.SettingsBackup:
+        return (
+          <SettingsBackupDialog
+            key="settings-backup"
+            mode={popup.mode}
+            dispatcher={this.props.dispatcher}
+            repositories={this.state.repositories.filter(
+              (r): r is Repository => r instanceof Repository
+            )}
+            onDismissed={onPopupDismissedFn}
+          />
+        )
       case PopupType.DebugInfo:
         return (
           <DebugInfoDialog

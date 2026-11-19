@@ -136,6 +136,17 @@ export function buildDefaultMenuTemplate({
         accelerator: 'CmdOrCtrl+Shift+O',
         click: emit('clone-repository'),
       },
+      separator,
+      {
+        label: __DARWIN__ ? 'Export Settings…' : 'Ex&port settings…',
+        id: 'export-settings',
+        click: emit('export-settings'),
+      },
+      {
+        label: __DARWIN__ ? 'Import Settings…' : '&Import settings…',
+        id: 'import-settings',
+        click: emit('import-settings'),
+      },
     ],
   }
 

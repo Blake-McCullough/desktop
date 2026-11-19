@@ -165,6 +165,16 @@ listed.
 
 <p align="center"><img src="docs/screenshots/clone-from-gitlab.png" alt="Cloning from GitLab: projects grouped by GitLab group and subgroup" width="480" /></p>
 
+### Settings backup
+
+**File → Export settings** saves this app's settings to a file:
+sidebar groups and colours (and which repositories are in them), pipeline
+notification choices, keyboard shortcuts, tag colours, GitLab server
+addresses and sidebar/menu bar options. **File → Import settings** applies
+them on another computer, showing what it will change first. Repositories
+are recognised by their remote, so they're found wherever they're cloned.
+Tokens and passwords are never included.
+
 ### Quick switcher and shortcuts
 
 Press **Ctrl+K** (**⌘K** on macOS), or use **View → Quick switcher**, and

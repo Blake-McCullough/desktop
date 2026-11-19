@@ -201,3 +201,31 @@ dialog#debug-info {
     color: var(--error-color);
   }
 }
+
+// File → Export / Import settings.
+dialog#settings-backup {
+  width: 560px;
+
+  .settings-backup-section {
+    margin-bottom: var(--spacing-half);
+  }
+
+  .settings-backup-detail {
+    margin: 0 0 0 calc(var(--spacing-double) + 2px);
+    color: var(--text-secondary-color);
+    font-size: var(--font-size-sm);
+  }
+
+  .settings-backup-file {
+    word-break: break-all;
+    color: var(--text-secondary-color);
+  }
+
+  .settings-backup-error {
+    color: var(--error-color);
+  }
+
+  .settings-backup-done {
+    color: var(--status-success-color, #1a7f37);
+  }
+}

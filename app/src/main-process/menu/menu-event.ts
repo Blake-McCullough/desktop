@@ -22,6 +22,8 @@ export type MenuEvent =
   | 'choose-repository'
   | 'show-quick-switcher'
   | 'show-debug-info'
+  | 'export-settings'
+  | 'import-settings'
   | 'open-working-directory'
   | 'update-branch-with-contribution-target-branch'
   | 'compare-to-branch'
